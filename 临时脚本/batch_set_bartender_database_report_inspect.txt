@@ -1,0 +1,125 @@
+Template: C:\Users\58372\Documents\label_generator\Templates\Amelco\BBHIC560-AD（HIC-0560-CF-BA3 ）  内标是系统表.btw
+
+[Application]
+<type info failed: (-2147352565, '无效索引。', None, None)>
+
+[Application probe]
+Formats: OK dispid=3
+Open: NO (-2147352570, '未知名称。', None, None)
+Save: OK dispid=10
+SaveAs: NO (-2147352570, '未知名称。', None, None)
+Close: NO (-2147352570, '未知名称。', None, None)
+Databases: NO (-2147352570, '未知名称。', None, None)
+DatabaseConnections: NO (-2147352570, '未知名称。', None, None)
+DatabaseConnection: NO (-2147352570, '未知名称。', None, None)
+DatabaseSetup: NO (-2147352570, '未知名称。', None, None)
+Database: NO (-2147352570, '未知名称。', None, None)
+Connections: NO (-2147352570, '未知名称。', None, None)
+Add: NO (-2147352570, '未知名称。', None, None)
+AddTextFile: NO (-2147352570, '未知名称。', None, None)
+AddTextFileConnection: NO (-2147352570, '未知名称。', None, None)
+AddDatabase: NO (-2147352570, '未知名称。', None, None)
+AddDatabaseConnection: NO (-2147352570, '未知名称。', None, None)
+New: NO (-2147352570, '未知名称。', None, None)
+Create: NO (-2147352570, '未知名称。', None, None)
+Insert: NO (-2147352570, '未知名称。', None, None)
+Item: NO (-2147352570, '未知名称。', None, None)
+Count: NO (-2147352570, '未知名称。', None, None)
+FileName: NO (-2147352570, '未知名称。', None, None)
+FilePath: NO (-2147352570, '未知名称。', None, None)
+Path: NO (-2147352570, '未知名称。', None, None)
+TextFileName: NO (-2147352570, '未知名称。', None, None)
+TextFile: NO (-2147352570, '未知名称。', None, None)
+DatabaseName: NO (-2147352570, '未知名称。', None, None)
+UseFirstRowAsFieldNames: NO (-2147352570, '未知名称。', None, None)
+UseFieldNamesFromFirstRecord: NO (-2147352570, '未知名称。', None, None)
+SetFileName: NO (-2147352570, '未知名称。', None, None)
+SetTextFileName: NO (-2147352570, '未知名称。', None, None)
+SetDatabaseName: NO (-2147352570, '未知名称。', None, None)
+QueryPrompts: NO (-2147352570, '未知名称。', None, None)
+NamedSubStrings: NO (-2147352570, '未知名称。', None, None)
+SubStrings: NO (-2147352570, '未知名称。', None, None)
+
+[Format]
+<type info failed: (-2147352565, '无效索引。', None, None)>
+
+[Format probe]
+Formats: NO (-2147352570, '未知名称。', None, None)
+Open: NO (-2147352570, '未知名称。', None, None)
+Save: OK dispid=20
+SaveAs: OK dispid=21
+Close: OK dispid=5
+Databases: OK dispid=29
+DatabaseConnections: NO (-2147352570, '未知名称。', None, None)
+DatabaseConnection: NO (-2147352570, '未知名称。', None, None)
+DatabaseSetup: NO (-2147352570, '未知名称。', None, None)
+Database: NO (-2147352570, '未知名称。', None, None)
+Connections: NO (-2147352570, '未知名称。', None, None)
+Add: NO (-2147352570, '未知名称。', None, None)
+AddTextFile: NO (-2147352570, '未知名称。', None, None)
+AddTextFileConnection: NO (-2147352570, '未知名称。', None, None)
+AddDatabase: NO (-2147352570, '未知名称。', None, None)
+AddDatabaseConnection: NO (-2147352570, '未知名称。', None, None)
+New: NO (-2147352570, '未知名称。', None, None)
+Create: NO (-2147352570, '未知名称。', None, None)
+Insert: NO (-2147352570, '未知名称。', None, None)
+Item: NO (-2147352570, '未知名称。', None, None)
+Count: NO (-2147352570, '未知名称。', None, None)
+FileName: OK dispid=8
+FilePath: NO (-2147352570, '未知名称。', None, None)
+Path: NO (-2147352570, '未知名称。', None, None)
+TextFileName: NO (-2147352570, '未知名称。', None, None)
+TextFile: NO (-2147352570, '未知名称。', None, None)
+DatabaseName: NO (-2147352570, '未知名称。', None, None)
+UseFirstRowAsFieldNames: NO (-2147352570, '未知名称。', None, None)
+UseFieldNamesFromFirstRecord: NO (-2147352570, '未知名称。', None, None)
+SetFileName: NO (-2147352570, '未知名称。', None, None)
+SetTextFileName: NO (-2147352570, '未知名称。', None, None)
+SetDatabaseName: NO (-2147352570, '未知名称。', None, None)
+QueryPrompts: NO (-2147352570, '未知名称。', None, None)
+NamedSubStrings: OK dispid=28
+SubStrings: NO (-2147352570, '未知名称。', None, None)
+
+[Format.DatabaseConnections]
+<failed: <unknown>.DatabaseConnections>
+
+[Format.Databases]
+count=0
+<type info failed: (-2147352565, '无效索引。', None, None)>
+
+[Format.Databases probe]
+Formats: NO (-2147352570, '未知名称。', None, None)
+Open: NO (-2147352570, '未知名称。', None, None)
+Save: NO (-2147352570, '未知名称。', None, None)
+SaveAs: NO (-2147352570, '未知名称。', None, None)
+Close: NO (-2147352570, '未知名称。', None, None)
+Databases: NO (-2147352570, '未知名称。', None, None)
+DatabaseConnections: NO (-2147352570, '未知名称。', None, None)
+DatabaseConnection: NO (-2147352570, '未知名称。', None, None)
+DatabaseSetup: NO (-2147352570, '未知名称。', None, None)
+Database: NO (-2147352570, '未知名称。', None, None)
+Connections: NO (-2147352570, '未知名称。', None, None)
+Add: NO (-2147352570, '未知名称。', None, None)
+AddTextFile: NO (-2147352570, '未知名称。', None, None)
+AddTextFileConnection: NO (-2147352570, '未知名称。', None, None)
+AddDatabase: NO (-2147352570, '未知名称。', None, None)
+AddDatabaseConnection: NO (-2147352570, '未知名称。', None, None)
+New: NO (-2147352570, '未知名称。', None, None)
+Create: NO (-2147352570, '未知名称。', None, None)
+Insert: NO (-2147352570, '未知名称。', None, None)
+Item: OK dispid=3
+Count: OK dispid=1
+FileName: NO (-2147352570, '未知名称。', None, None)
+FilePath: NO (-2147352570, '未知名称。', None, None)
+Path: NO (-2147352570, '未知名称。', None, None)
+TextFileName: NO (-2147352570, '未知名称。', None, None)
+TextFile: NO (-2147352570, '未知名称。', None, None)
+DatabaseName: NO (-2147352570, '未知名称。', None, None)
+UseFirstRowAsFieldNames: NO (-2147352570, '未知名称。', None, None)
+UseFieldNamesFromFirstRecord: NO (-2147352570, '未知名称。', None, None)
+SetFileName: NO (-2147352570, '未知名称。', None, None)
+SetTextFileName: NO (-2147352570, '未知名称。', None, None)
+SetDatabaseName: NO (-2147352570, '未知名称。', None, None)
+QueryPrompts: OK dispid=2
+NamedSubStrings: NO (-2147352570, '未知名称。', None, None)
+SubStrings: NO (-2147352570, '未知名称。', None, None)

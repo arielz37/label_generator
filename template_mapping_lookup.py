@@ -8,8 +8,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Union
 from xml.etree import ElementTree
 
-
-MAPPING_FILE = Path(__file__).resolve().parent / "template_mapping.xlsx"
+import app_paths
 
 
 class TemplateLookupError(Exception):
@@ -20,8 +19,8 @@ def normalize_code(value: str) -> str:
     return (value or "").strip().casefold()
 
 
-def read_mapping_rows(mapping_file: Union[str, Path] = MAPPING_FILE) -> List[Dict[str, str]]:
-    path = Path(mapping_file)
+def read_mapping_rows(mapping_file: Union[str, Path, None] = None) -> List[Dict[str, str]]:
+    path = Path(mapping_file or app_paths.TEMPLATE_MAPPING_FILE)
     if not path.exists():
         raise TemplateLookupError(f"映射表不存在：{path}")
 
@@ -112,7 +111,7 @@ def find_template_by_mo_fields(
     customer_part_no: str,
     product_code: str,
     label_type: str,
-    mapping_file: Union[str, Path] = MAPPING_FILE,
+    mapping_file: Union[str, Path, None] = None,
 ) -> str:
     return get_column(
         find_template_mapping_by_mo_fields(
@@ -133,7 +132,7 @@ def find_template_mapping_by_mo_fields(
     customer_part_no: str,
     product_code: str,
     label_type: str,
-    mapping_file: Union[str, Path] = MAPPING_FILE,
+    mapping_file: Union[str, Path, None] = None,
 ) -> Dict[str, str]:
     """Return template relative path by ERP fields.
 
@@ -152,16 +151,9 @@ def find_template_mapping_by_mo_fields(
     if not any("客户编号" in row or "ERP客户编号" in row for row in rows):
         raise TemplateLookupError("映射表缺少“客户编号”列，请先在 Excel 里补 ERP 客户编号。")
 
-    enabled_rows = [
-        row
-        for row in rows
-        if get_column(row, ("启用建议", "启用")) in ("", "是", "Y", "y", "yes", "YES", "1")
-        and get_column(row, ("状态",)) != "排除"
-    ]
-
     customer_rows = [
         row
-        for row in enabled_rows
+        for row in rows
         if normalize_code(get_column(row, ("客户编号", "ERP客户编号"))) == normalize_code(customer_code)
     ]
     if not customer_rows:
@@ -208,7 +200,7 @@ def find_template_mapping_by_mo_fields(
 def find_template_by_runtime_csv(
     runtime_csv: Union[str, Path],
     label_type: str,
-    mapping_file: Union[str, Path] = MAPPING_FILE,
+    mapping_file: Union[str, Path, None] = None,
 ) -> str:
     return get_column(
         find_template_mapping_by_runtime_csv(
@@ -223,7 +215,7 @@ def find_template_by_runtime_csv(
 def find_template_mapping_by_runtime_csv(
     runtime_csv: Union[str, Path],
     label_type: str,
-    mapping_file: Union[str, Path] = MAPPING_FILE,
+    mapping_file: Union[str, Path, None] = None,
 ) -> Dict[str, str]:
     row = read_runtime_csv_first_row(runtime_csv)
     return find_template_mapping_by_mo_fields(
@@ -243,7 +235,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--customer-part-no", default="", help="客户料号，优先用于匹配")
     parser.add_argument("--product-code", default="", help="产品编号，客户料号找不到时用于匹配")
     parser.add_argument("--label-type", required=True, help="标签类型，例如：内标、外标、内外标、送货单")
-    parser.add_argument("--mapping-file", default=str(MAPPING_FILE), help="模板映射表路径，支持 .xlsx 或 .csv")
+    parser.add_argument("--mapping-file", default=str(app_paths.TEMPLATE_MAPPING_FILE), help="模板映射表路径，支持 .xlsx 或 .csv")
     return parser
 
 

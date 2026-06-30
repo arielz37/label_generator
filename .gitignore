@@ -1,6 +1,8 @@
 .DS_Store
 __pycache__/
 *.py[cod]
+build/
+dist/
 
 .venv/
 .vscode/
@@ -10,7 +12,10 @@ __pycache__/
 
 runtime_data/
 final_labels/
+logs/
+template_backups/
 
 .env
+app_settings.json
 
 erp数据库字段映射表.xlsx

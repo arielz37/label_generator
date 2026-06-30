@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<XMLScript Version="2.0">
+  <Command Name="AddCsvDatabase">
+    <FormatSetup>
+      <Format CloseAtEndOfJob="true" SaveAtEndOfJob="true">C:\Users\58372\Documents\label_generator\临时脚本\xmlscript_database_trials\20260626_092306\BBHIC560-AD（HIC-0560-CF-BA3 ）  内标是系统表.btw</Format>
+      <RecordSet Name="current_label" Type="btTextFile" AddIfNone="true">
+        <FileName>C:\Users\58372\Documents\label_generator\runtime_data\current_label.csv</FileName>
+        <Delimitation>btDelimMixedQuoteAndComma</Delimitation>
+        <UseFieldNamesFromFirstRecord>true</UseFieldNamesFromFirstRecord>
+      </RecordSet>
+    </FormatSetup>
+  </Command>
+</XMLScript>

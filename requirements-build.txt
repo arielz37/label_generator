@@ -1,0 +1,2 @@
+# Build-only dependencies. Not required on computers that only run the EXE.
+pyinstaller==5.13.2

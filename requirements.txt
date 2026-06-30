@@ -1,1 +1,4 @@
-pyodbc>=4.0.39
+# Python 3.8 target runtime.
+# tkinter is part of the full Python installer, not a pip package.
+pyodbc>=4.0.39,<5
+pywin32>=306
