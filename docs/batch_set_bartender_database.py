@@ -17,9 +17,12 @@ DEFAULT_TEMPLATE_ROOT = TEMPLATE_ROOT
 DEFAULT_RUNTIME_CSV = RUNTIME_DIR / "current_label.csv"
 DEFAULT_REPORT = LOG_DIR / "batch_set_bartender_database_report.csv"
 SCRIPT_DIR = LOG_DIR / "batch_set_bartender_database_xmlscripts"
+XMLSCRIPT_TIMEOUT_SECONDS = 60
 
 CSV_FIELDS = [
     "MO_NO",
+    "SO_NO",
+    "CUS_OS_NO",
     "ORDER_NO",
     "CUS_NO",
     "SUP_PRD_NO",
@@ -433,9 +436,19 @@ def add_database_with_xmlscript(template_path: Path, csv_path: Path, printer_nam
 
     command = [find_bartender_exe(), f"/XMLSCRIPT={script_path}", "/X"]
     try:
-        subprocess.run(command, check=True)
+        process = subprocess.Popen(command)
+        try:
+            process.wait(timeout=XMLSCRIPT_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+            raise
+        if process.returncode != 0:
+            raise subprocess.CalledProcessError(process.returncode, command)
     except FileNotFoundError as error:
         return False, f"找不到 BarTender 可执行文件：{error.filename}"
+    except subprocess.TimeoutExpired:
+        return False, f"XMLScript 执行超时：超过 {XMLSCRIPT_TIMEOUT_SECONDS} 秒。模板可能弹出 BarTender 确认窗口或无法自动保存，脚本：{script_path}"
     except subprocess.CalledProcessError as error:
         return False, f"XMLScript 执行失败，退出码：{error.returncode}，脚本：{script_path}"
 

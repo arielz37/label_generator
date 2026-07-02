@@ -121,14 +121,25 @@ def collect_preview_images(out_dir: Path, base_name: str, image_format: str) -> 
     return normalized
 
 
-def wait_for_preview_images(out_dir: Path, base_name: str, image_format: str, timeout_seconds: int) -> List[Path]:
+def wait_for_preview_images(
+    out_dir: Path,
+    base_name: str,
+    image_format: str,
+    timeout_seconds: int,
+    expected_count: int = 0,
+) -> List[Path]:
     deadline = time.time() + timeout_seconds
+    latest_images: List[Path] = []
     while True:
         images = collect_preview_images(out_dir, base_name, image_format)
-        if images:
+        if expected_count and len(images) >= expected_count:
             return images
+        if images:
+            latest_images = images
+            if not expected_count:
+                return images
         if time.time() >= deadline:
-            return []
+            return latest_images
         time.sleep(0.5)
 
 
@@ -148,7 +159,7 @@ def generate_preview_image(
     template = resolve_template_path(template_path, TEMPLATE_ROOT)
     if not template.exists():
         raise BarTenderRunnerError(f"模板文件不存在：{template}")
-    validate_runtime_csv(csv_path)
+    expected_count = len(validate_runtime_csv(csv_path))
 
     out_dir = Path(output_dir).resolve()
     xml_dir = Path(script_dir).resolve()
@@ -184,7 +195,13 @@ def generate_preview_image(
     if not run:
         return [expected_image]
 
-    normalized = wait_for_preview_images(out_dir, base_name, image_format, preview_timeout_seconds)
+    normalized = wait_for_preview_images(
+        out_dir,
+        base_name,
+        image_format,
+        preview_timeout_seconds,
+        expected_count=expected_count,
+    )
 
     if not normalized:
         printer_hint = f"；当前指定打印机：{printer_name}" if printer_name else "；当前未指定打印机"
@@ -193,7 +210,12 @@ def generate_preview_image(
             "如果清空打印机后可以生成，说明该打印机驱动/名称与 BarTender 模板不兼容。"
         )
 
-    expected_count = len(validate_runtime_csv(csv_path))
+    if len(normalized) < expected_count:
+        raise BarTenderRunnerError(
+            f"预览图未全部生成：CSV={expected_count} 行，当前只生成 {len(normalized)} 张。"
+            "请确认 BarTender 没有弹窗卡住，或把预览等待时间调大。"
+        )
+
     if len(normalized) > expected_count:
         raise BarTenderRunnerError(
             f"预览页数异常：CSV={expected_count} 行，预览={len(normalized)} 页。"

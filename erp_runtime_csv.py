@@ -5,15 +5,20 @@ import calendar
 import csv
 import re
 from datetime import date, datetime, timedelta
-from decimal import Decimal, InvalidOperation, ROUND_FLOOR, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from app_paths import PACKAGE_NAME_FILE, RUNTIME_DIR
 from config import ERP_DATABASE, ERP_DRIVER, ERP_PASSWORD, ERP_SERVER, ERP_USER, require_erp_config
 
+
+DEFAULT_SHELF_LIFE_MONTHS = 12
+
 RAW_RUNTIME_FIELDS = [
     "MO_NO",
+    "SO_NO",
+    "CUS_OS_NO",
     "ORDER_NO",
     "CUS_NO",
     "SUP_PRD_NO",
@@ -39,6 +44,8 @@ RAW_RUNTIME_FIELDS = [
 
 LABEL_CSV_FIELDS = [
     "MO_NO",
+    "SO_NO",
+    "CUS_OS_NO",
     "ORDER_NO",
     "CUS_NO",
     "SUP_PRD_NO",
@@ -65,7 +72,6 @@ CSV_FIELDS = LABEL_CSV_FIELDS
 
 DB_FIELD_ALIASES = {
     "MO_DD": "MFG_DATE",
-    "ORDER_NO": "SO_NO",
     "CUS_NO": "CUSTOMER_CODE",
     "CUS_NAME": "CUSTOMER_NAME",
     "SUP_PRD_NO": "SUP_PRD_NO",
@@ -81,6 +87,7 @@ SELECT TOP 1
     MO_DD AS MFG_DATE,
     MO_DD AS PROD_DATE,
     SO_NO,
+    CUS_OS_NO,
     CUS_NO,
     SUP_PRD_NO,
     MRP_NO,
@@ -291,7 +298,6 @@ def fetch_bom_pack_quantities(product_code: str) -> Dict[str, str]:
     inner_package_names = load_inner_package_names()
     apply_package_row(result, "INNER", select_inner_package_row(rows, inner_package_names))
     apply_package_row(result, "OUTER", select_outer_package_row(rows))
-
     return result
 
 
@@ -319,7 +325,7 @@ def calculate_label_count(total_qty: Any, per_label_qty: Any) -> str:
         return ""
     if per_label == 0:
         raise RuntimeCsvError("产品数量不能为 0，无法计算标签张数。")
-    return str(int((total / per_label).to_integral_value(rounding=ROUND_FLOOR)))
+    return format_decimal(total / per_label, places=4)
 
 
 def calculate_remainder_qty(total_qty: Any, per_label_qty: Any) -> str:
@@ -335,14 +341,9 @@ def calculate_remainder_qty(total_qty: Any, per_label_qty: Any) -> str:
 
 
 def parse_label_count(value: str) -> int:
-    value = (value or "").strip()
-    if not value:
-        return 1
+    value = (value or "1").strip()
     try:
-        count = parse_decimal(value)
-        if count is None:
-            raise ValueError
-        return max(int(count.to_integral_value(rounding=ROUND_FLOOR)), 0)
+        return max(int(float(value)), 0)
     except ValueError:
         raise RuntimeCsvError(f"无法识别 LABEL_COUNT：{value}")
 
@@ -351,27 +352,12 @@ def parse_csv_date(value: str) -> Optional[date]:
     value = (value or "").strip()
     if not value:
         return None
-    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d"):
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d", "%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S"):
         try:
             return datetime.strptime(value, fmt).date()
         except ValueError:
             pass
     return None
-
-
-def format_date_compact(value: str, fmt: str) -> str:
-    parsed = parse_csv_date(value)
-    if not parsed:
-        return ""
-    return parsed.strftime(fmt)
-
-
-def build_lot_no(mfg_date: str, mo_no: str, suffix: str = "SZBD") -> str:
-    mfg_compact = format_date_compact(mfg_date, "%y%m%d")
-    mo_no = (mo_no or "").strip()
-    if not mfg_compact or not mo_no:
-        return ""
-    return f"{mfg_compact}-{mo_no}-{suffix}"
 
 
 def add_months(start_date: date, months: int) -> date:
@@ -383,12 +369,7 @@ def add_months(start_date: date, months: int) -> date:
 
 
 def shelf_life_months_from_package_name(package_name: str) -> Optional[int]:
-    name = (package_name or "").strip()
-    if is_can_package_name(name):
-        return 24
-    if name in load_inner_package_names():
-        return 12
-    return None
+    return DEFAULT_SHELF_LIFE_MONTHS
 
 
 def parse_shelf_life_months(value: Any) -> Optional[int]:
@@ -417,6 +398,20 @@ def calculate_exp_date_by_months(mfg_date: str, months: Optional[int]) -> str:
     return format_csv_value(add_months(start_date, months) - timedelta(days=1))
 
 
+def format_date_compact(value: str, fmt: str) -> str:
+    parsed = parse_csv_date(value)
+    if not parsed:
+        return ""
+    return parsed.strftime(fmt)
+
+
+def build_lot_no(mfg_date: str, mo_no: str, suffix: str = "SZBD") -> str:
+    mfg_compact = format_date_compact(mfg_date, "%y%m%d")
+    if not mfg_compact or not mo_no:
+        return ""
+    return f"{mfg_compact}-{mo_no}-{suffix}"
+
+
 def calculate_exp_date_by_package(mfg_date: str, package_name: str) -> str:
     return calculate_exp_date_by_months(mfg_date, shelf_life_months_from_package_name(package_name))
 
@@ -425,6 +420,7 @@ def normalize_db_row(row: Dict[str, Any]) -> Dict[str, str]:
     normalized = {
         "MO_NO": "",
         "SO_NO": "",
+        "CUS_OS_NO": "",
         "CUSTOMER_CODE": "",
         "CUSTOMER_NAME": "",
         "CUSTOMER_PART_NO": "",
@@ -487,7 +483,6 @@ def build_runtime_csv_row(
         or calculate_exp_date_by_months(mfg_date, shelf_life_months)
         or first_value(normalized_row, ("EXP_DATE", "EXPIRE_DATE"))
     )
-    mfg_qty = qty
 
     inner_qty = format_csv_value(options.get("INNER_QTY")) or pack_options.get("INNER_QTY", "")
     outer_qty = format_csv_value(options.get("OUTER_QTY")) or pack_options.get("OUTER_QTY", "")
@@ -496,13 +491,6 @@ def build_runtime_csv_row(
     has_inner_label = format_csv_value(options.get("HAS_INNER_LABEL")) or ("Y" if inner_qty else "N")
     inner_label_count = format_csv_value(options.get("INNER_LABEL_COUNT", ""))
     outer_label_count = format_csv_value(options.get("OUTER_LABEL_COUNT", ""))
-    mo_no = first_value(normalized_row, ("MO_NO",))
-    order_no = first_value(normalized_row, ("SO_NO", "ORDER_NO"))
-    mfg_date_yymmdd = format_date_compact(mfg_date, "%y%m%d")
-    mfg_date_yyyymmdd = format_date_compact(mfg_date, "%Y%m%d")
-    exp_date_yymmdd = format_date_compact(exp_date, "%y%m%d")
-    exp_date_yyyymmdd = format_date_compact(exp_date, "%Y%m%d")
-    lot_no = build_lot_no(mfg_date, mo_no)
 
     if "INNER_LABEL_COUNT" not in options:
         inner_label_count = calculate_label_count(qty, inner_qty) if has_inner_label == "Y" and inner_qty else "0"
@@ -512,19 +500,21 @@ def build_runtime_csv_row(
     outer_remainder_qty = calculate_remainder_qty(qty, outer_qty)
 
     return {
-        "MO_NO": mo_no,
-        "ORDER_NO": order_no,
+        "MO_NO": first_value(normalized_row, ("MO_NO",)),
+        "SO_NO": first_value(normalized_row, ("SO_NO",)),
+        "CUS_OS_NO": first_value(normalized_row, ("CUS_OS_NO",)),
+        "ORDER_NO": first_value(normalized_row, ("CUS_OS_NO",)),
         "CUS_NO": first_value(normalized_row, ("CUSTOMER_CODE",)),
         "SUP_PRD_NO": first_value(normalized_row, ("SUP_PRD_NO", "CUSTOMER_PART_NO")),
         "MRP_NO": product_code,
-        "MFG_QTY": mfg_qty,
+        "MFG_QTY": qty,
         "MFG_DATE": mfg_date,
-        "MFG_DATE_YYMMDD": mfg_date_yymmdd,
-        "MFG_DATE_YYYYMMDD": mfg_date_yyyymmdd,
+        "MFG_DATE_YYMMDD": format_date_compact(mfg_date, "%y%m%d"),
+        "MFG_DATE_YYYYMMDD": format_date_compact(mfg_date, "%Y%m%d"),
         "EXP_DATE": exp_date,
-        "EXP_DATE_YYMMDD": exp_date_yymmdd,
-        "EXP_DATE_YYYYMMDD": exp_date_yyyymmdd,
-        "LOT_NO": lot_no,
+        "EXP_DATE_YYMMDD": format_date_compact(exp_date, "%y%m%d"),
+        "EXP_DATE_YYYYMMDD": format_date_compact(exp_date, "%Y%m%d"),
+        "LOT_NO": build_lot_no(mfg_date, first_value(normalized_row, ("MO_NO",))),
         "HAS_INNER_LABEL": has_inner_label,
         "INNER_QTY": inner_qty,
         "OUTER_QTY": outer_qty,
@@ -552,6 +542,8 @@ def build_label_csv_row(
 ) -> Dict[str, str]:
     return {
         "MO_NO": runtime_row.get("MO_NO", ""),
+        "SO_NO": runtime_row.get("SO_NO", ""),
+        "CUS_OS_NO": runtime_row.get("CUS_OS_NO", ""),
         "ORDER_NO": runtime_row.get("ORDER_NO", ""),
         "CUS_NO": runtime_row.get("CUS_NO", ""),
         "SUP_PRD_NO": runtime_row.get("SUP_PRD_NO", ""),

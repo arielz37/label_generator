@@ -8,7 +8,7 @@ Current scope:
 2. Generate `runtime_data/current_label.csv`.
 3. Calculate expiration date, label quantities, and label counts from ERP BOM data.
 4. Locate the required `.btw` template from `template_mapping.xlsx`, unless the desktop UI manually specifies an outer/inner template. The UI can also open the resolved outer/inner template directly in BarTender for field binding.
-5. Decide whether an inner label exists from `template_mapping.xlsx`.
+5. Decide whether an inner label exists from both ERP/BOM inner package quantity and an inner/combined template mapping.
 6. Generate preview images and optionally print through BarTender CLI.
 
 ## Requirements
@@ -85,6 +85,8 @@ The current runtime CSV fields are:
 
 ```text
 MO_NO
+SO_NO
+CUS_OS_NO
 ORDER_NO
 CUS_NO
 SUP_PRD_NO
@@ -108,7 +110,9 @@ PACKAGE_NAME
 `SUP_PRD_NO` is the customer part number.  
 `MRP_NO` is the product number.
 `MFG_QTY` is the manufacturing order quantity.
-`ORDER_NO` is the ERP order number.
+`SO_NO` is the ERP sales order number, usually beginning with `SO`.
+`CUS_OS_NO` is the ERP customer order number source field.
+`ORDER_NO` is the customer purchase/order number; currently it uses `CUS_OS_NO`.
 `LOT_NO` is generated as `MFG_DATE_YYMMDD-MO_NO-SZBD`.
 `QTY` is the quantity shown on the current label type.
 `LABEL_COUNT` is the total label count for that label type, including a final remainder label when one is generated.

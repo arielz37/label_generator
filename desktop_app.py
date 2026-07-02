@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import queue
+import re
 import subprocess
 import threading
 from datetime import datetime, timedelta
@@ -27,6 +28,9 @@ from label_service import find_template_for_mo, generate_label_preview, print_la
 
 APP_TITLE = "标签生成工作台"
 LOG_RETENTION_DAYS = 7
+MO_NO_PATTERN = re.compile(r"^MO\d{8}$")
+SHELF_LIFE_DEFAULT_TEXT = "默认12个月"
+PRINTER_DEFAULT_TEXT = "默认系统打印机"
 
 
 def cleanup_old_logs() -> None:
@@ -57,6 +61,10 @@ def safe_log_segment(value: str) -> str:
     return "".join(chars).strip("_") or "work_order"
 
 
+def is_valid_mo_no(value: str) -> bool:
+    return bool(MO_NO_PATTERN.fullmatch((value or "").strip()))
+
+
 SHELF_LIFE_OPTIONS = ("半年", "一年", "一年半", "两年", "3年", "5年", "其他")
 SHELF_LIFE_MONTHS = {
     "半年": "6",
@@ -85,6 +93,18 @@ def list_windows_printers() -> list[str]:
     return sorted(set(printers), key=str.casefold)
 
 
+def get_windows_default_printer() -> str:
+    try:
+        import win32print
+    except Exception:
+        return ""
+
+    try:
+        return str(win32print.GetDefaultPrinter()).strip()
+    except Exception:
+        return ""
+
+
 def is_virtual_printer_name(printer_name: str) -> bool:
     text = (printer_name or "").casefold()
     virtual_keywords = (
@@ -108,8 +128,8 @@ class LabelGeneratorApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title(APP_TITLE)
-        self.geometry("1180x760")
-        self.minsize(980, 640)
+        self.geometry("1380x780")
+        self.minsize(1280, 700)
 
         self.result = None
         self.current_label_type = "outer"
@@ -124,10 +144,53 @@ class LabelGeneratorApp(tk.Tk):
         self.template_db_menu_index = None
         self.mapping_menu_index = None
         self.settings_menu_index = None
+        self.entry_placeholders = {}
+        self.placeholder_texts = set()
+        self.warned_virtual_printers = set()
 
         self.create_menu()
         self.create_widgets()
         self.after(100, self.poll_worker_queue)
+
+    def configure_styles(self) -> None:
+        style = ttk.Style(self)
+        style.configure("Primary.TButton", font=("", 11, "bold"), padding=(14, 8))
+
+    def add_entry_placeholder(self, entry: ttk.Entry, variable: tk.StringVar, placeholder: str) -> None:
+        self.entry_placeholders[entry] = (variable, placeholder)
+        self.placeholder_texts.add(placeholder)
+
+        def show_placeholder(_event=None) -> None:
+            if not variable.get().strip():
+                variable.set(placeholder)
+                self.set_entry_foreground(entry, "#888888")
+
+        def hide_placeholder(_event=None) -> None:
+            if variable.get().strip() == placeholder:
+                variable.set("")
+                self.set_entry_foreground(entry, "#000000")
+
+        entry.bind("<FocusIn>", hide_placeholder, add="+")
+        entry.bind("<FocusOut>", show_placeholder, add="+")
+        show_placeholder()
+
+    def entry_value(self, variable: tk.StringVar) -> str:
+        value = variable.get().strip()
+        if value in self.placeholder_texts:
+            return ""
+        return value
+
+    def refresh_entry_placeholder(self, entry: ttk.Entry) -> None:
+        variable, placeholder = self.entry_placeholders.get(entry, (None, ""))
+        if variable is not None and not variable.get().strip():
+            variable.set(placeholder)
+            self.set_entry_foreground(entry, "#888888")
+
+    def set_entry_foreground(self, entry: ttk.Entry, color: str) -> None:
+        try:
+            entry.configure(foreground=color)
+        except tk.TclError:
+            pass
 
     def create_menu(self) -> None:
         menu_bar = tk.Menu(self)
@@ -143,13 +206,15 @@ class LabelGeneratorApp(tk.Tk):
         self.config(menu=menu_bar)
 
     def create_widgets(self) -> None:
+        self.configure_styles()
         self.columnconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)
 
         top = ttk.Frame(self, padding=12)
         top.grid(row=0, column=0, sticky="ew")
         top.columnconfigure(1, weight=1)
-        top.columnconfigure(3, weight=1)
+        top.columnconfigure(3, weight=0)
+        top.columnconfigure(5, weight=1)
         top.columnconfigure(8, weight=1)
 
         ttk.Label(top, text="MO号").grid(row=0, column=0, padx=(0, 8))
@@ -162,7 +227,9 @@ class LabelGeneratorApp(tk.Tk):
 
         ttk.Label(top, text="打印机").grid(row=1, column=0, padx=(0, 8), pady=(8, 0))
         printer_values = list_windows_printers()
-        self.printer_var = tk.StringVar(value=BARTENDER_PRINTER)
+        if PRINTER_DEFAULT_TEXT not in printer_values:
+            printer_values = [PRINTER_DEFAULT_TEXT] + printer_values
+        self.printer_var = tk.StringVar(value=BARTENDER_PRINTER or PRINTER_DEFAULT_TEXT)
         self.printer_combo = ttk.Combobox(
             top,
             textvariable=self.printer_var,
@@ -206,31 +273,40 @@ class LabelGeneratorApp(tk.Tk):
         )
         self.open_inner_template_button.grid(row=2, column=8, padx=(0, 8), pady=(8, 0), sticky="w")
 
-        ttk.Label(top, text="保质期").grid(row=0, column=2, padx=(0, 8))
-        self.shelf_life_var = tk.StringVar(value="")
+        self.outer_print_count_var = tk.StringVar(value="")
+        self.outer_print_count_entry = ttk.Entry(top, textvariable=self.outer_print_count_var, width=6)
+
+        self.inner_print_count_var = tk.StringVar(value="")
+        self.inner_print_count_entry = ttk.Entry(top, textvariable=self.inner_print_count_var, width=6)
+
+        ttk.Label(top, text="保质期").grid(row=0, column=2, sticky="e", padx=(0, 8))
+        self.shelf_life_var = tk.StringVar(value=SHELF_LIFE_DEFAULT_TEXT)
         self.shelf_life_combo = ttk.Combobox(
             top,
             textvariable=self.shelf_life_var,
-            values=SHELF_LIFE_OPTIONS,
+            values=(SHELF_LIFE_DEFAULT_TEXT,) + SHELF_LIFE_OPTIONS,
             width=8,
             state="readonly",
         )
-        self.shelf_life_combo.grid(row=0, column=3, padx=(0, 8))
+        self.shelf_life_combo.grid(row=0, column=3, sticky="w", padx=(0, 8))
         self.shelf_life_combo.bind("<<ComboboxSelected>>", self.on_shelf_life_selected)
         self.custom_shelf_life_var = tk.StringVar(value="")
         self.custom_shelf_life_entry = ttk.Entry(top, textvariable=self.custom_shelf_life_var, width=8, state="disabled")
-        self.custom_shelf_life_entry.grid(row=0, column=4, padx=(0, 4))
+        self.custom_shelf_life_entry.grid(row=0, column=4, sticky="w", padx=(0, 4))
         self.custom_shelf_life_unit = ttk.Label(top, text="月")
-        self.custom_shelf_life_unit.grid(row=0, column=5, padx=(0, 8))
-        ttk.Label(top, text="未选=默认：罐/铁桶24月，袋12月").grid(row=0, column=6, padx=(0, 8))
-        self.preview_button = ttk.Button(top, text="生成预览", command=self.start_preview)
-        self.preview_button.grid(row=0, column=7, padx=(0, 8))
+        self.custom_shelf_life_unit.grid(row=0, column=5, sticky="w", padx=(0, 8))
+        self.preview_button = ttk.Button(top, text="生成预览", command=self.start_preview, style="Primary.TButton")
+        self.preview_button.grid(row=2, column=0, columnspan=2, sticky="ew", padx=(0, 8), pady=(8, 0))
+        ttk.Label(top, text="外标张数").grid(row=0, column=8, sticky="e", padx=(0, 4))
+        self.outer_print_count_entry.grid(row=0, column=9, padx=(0, 8))
         self.print_outer_button = ttk.Button(top, text="打印外标", command=lambda: self.start_print(["outer"]))
-        self.print_outer_button.grid(row=0, column=8, padx=(0, 8))
+        self.print_outer_button.grid(row=0, column=10, padx=(0, 8))
+        ttk.Label(top, text="内标张数").grid(row=0, column=11, sticky="e", padx=(0, 4))
+        self.inner_print_count_entry.grid(row=0, column=12, padx=(0, 8))
         self.print_inner_button = ttk.Button(top, text="打印内标", command=lambda: self.start_print(["inner"]))
-        self.print_inner_button.grid(row=0, column=9, padx=(0, 8))
+        self.print_inner_button.grid(row=0, column=13, padx=(0, 8))
         self.print_all_button = ttk.Button(top, text="全部打印", command=self.print_all)
-        self.print_all_button.grid(row=0, column=10)
+        self.print_all_button.grid(row=0, column=14)
         body = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
         body.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
 
@@ -282,7 +358,14 @@ class LabelGeneratorApp(tk.Tk):
         status = ttk.Label(self, textvariable=self.status_var, relief="sunken", anchor="w", padding=6)
         status.grid(row=2, column=0, sticky="ew")
 
+        self.configure_entry_placeholders()
         self.update_action_state()
+
+    def configure_entry_placeholders(self) -> None:
+        self.add_entry_placeholder(self.outer_template_entry, self.outer_template_var, "自动匹配外标模板")
+        self.add_entry_placeholder(self.inner_template_entry, self.inner_template_var, "自动匹配内标模板")
+        self.add_entry_placeholder(self.outer_print_count_entry, self.outer_print_count_var, "全部")
+        self.add_entry_placeholder(self.inner_print_count_entry, self.inner_print_count_var, "全部")
 
     def log(self, message: str) -> None:
         timestamped = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {message}"
@@ -297,6 +380,7 @@ class LabelGeneratorApp(tk.Tk):
             self.custom_shelf_life_entry.focus_set()
         else:
             self.custom_shelf_life_var.set("")
+            self.refresh_entry_placeholder(self.custom_shelf_life_entry)
             self.custom_shelf_life_entry.configure(state="disabled")
 
     def on_mo_changed(self, *_args) -> None:
@@ -304,6 +388,8 @@ class LabelGeneratorApp(tk.Tk):
         if self.template_lookup_mo and mo_no != self.template_lookup_mo:
             self.outer_template_var.set("")
             self.inner_template_var.set("")
+            self.refresh_entry_placeholder(self.outer_template_entry)
+            self.refresh_entry_placeholder(self.inner_template_entry)
             self.template_lookup_mo = ""
 
     def on_mo_template_lookup(self, _event=None) -> None:
@@ -313,12 +399,13 @@ class LabelGeneratorApp(tk.Tk):
         mo_no = self.mo_var.get().strip()
         if not mo_no:
             return False
-        if self.template_lookup_mo == mo_no and (self.outer_template_var.get().strip() or self.inner_template_var.get().strip()):
+        if self.template_lookup_mo == mo_no and (self.entry_value(self.outer_template_var) or self.entry_value(self.inner_template_var)):
             return True
 
         try:
             outer_template = find_template_for_mo(mo_no, "outer")
             self.outer_template_var.set(outer_template)
+            self.set_entry_foreground(self.outer_template_entry, "#000000")
         except Exception as error:
             if show_errors:
                 messagebox.showerror(APP_TITLE, str(error))
@@ -333,6 +420,10 @@ class LabelGeneratorApp(tk.Tk):
             inner_template = ""
             self.log(f"未自动识别到内标模板：{error}")
         self.inner_template_var.set(inner_template)
+        if inner_template:
+            self.set_entry_foreground(self.inner_template_entry, "#000000")
+        else:
+            self.refresh_entry_placeholder(self.inner_template_entry)
         self.template_lookup_mo = mo_no
         self.status_var.set("已自动识别模板路径")
         self.log(f"自动识别外标模板：{outer_template}")
@@ -354,6 +445,10 @@ class LabelGeneratorApp(tk.Tk):
         except ValueError:
             value = str(path)
         target_var.set(value)
+        if target_var is self.outer_template_var:
+            self.set_entry_foreground(self.outer_template_entry, "#000000")
+        elif target_var is self.inner_template_var:
+            self.set_entry_foreground(self.inner_template_entry, "#000000")
 
     def open_settings_dialog(self) -> None:
         dialog = tk.Toplevel(self)
@@ -537,15 +632,21 @@ class LabelGeneratorApp(tk.Tk):
         template_mapping_lookup.app_paths.TEMPLATE_MAPPING_FILE = TEMPLATE_MAPPING_FILE
 
     def get_template_overrides(self) -> tuple[str, str]:
-        return self.outer_template_var.get().strip(), self.inner_template_var.get().strip()
+        return self.entry_value(self.outer_template_var), self.entry_value(self.inner_template_var)
 
     def get_selected_printer(self) -> str:
         printer_name = self.printer_var.get().strip()
+        if printer_name == PRINTER_DEFAULT_TEXT:
+            printer_name = get_windows_default_printer()
         if printer_name and is_virtual_printer_name(printer_name):
-            raise ValueError(
-                f"当前选择的是虚拟打印机：{printer_name}\n\n"
-                "请改选现场标签打印机。PDF/XPS/OneNote/Fax 这类虚拟打印机可能导致 BarTender 无法生成预览图。"
+            message = (
+                f"当前选择的是虚拟打印机：{printer_name}。"
+                "PDF/XPS/OneNote/Fax 这类虚拟打印机可能导致 BarTender 预览或打印结果异常。"
             )
+            self.log(message)
+            if printer_name not in self.warned_virtual_printers:
+                self.warned_virtual_printers.add(printer_name)
+                messagebox.showwarning(APP_TITLE, message)
         return printer_name
 
     def open_template_file(self, label_type: str) -> None:
@@ -563,8 +664,10 @@ class LabelGeneratorApp(tk.Tk):
             )
             if label_type == "outer":
                 self.outer_template_var.set(template)
+                self.set_entry_foreground(self.outer_template_entry, "#000000")
             else:
                 self.inner_template_var.set(template)
+                self.set_entry_foreground(self.inner_template_entry, "#000000")
             self.template_lookup_mo = mo_no
             template_path = resolve_template_path(template)
             if not template_path.exists():
@@ -583,10 +686,10 @@ class LabelGeneratorApp(tk.Tk):
 
     def get_shelf_life_value(self) -> str:
         selected = self.shelf_life_var.get().strip()
-        if not selected:
+        if not selected or selected == SHELF_LIFE_DEFAULT_TEXT:
             return ""
         if selected == "其他":
-            months = self.custom_shelf_life_var.get().strip()
+            months = self.entry_value(self.custom_shelf_life_var)
             if not months:
                 raise ValueError("请选择“其他”时，请输入保质期月份。")
             if not months.isdigit() or int(months) <= 0:
@@ -596,6 +699,8 @@ class LabelGeneratorApp(tk.Tk):
 
     def set_busy(self, busy: bool) -> None:
         state = "disabled" if busy else "normal"
+        if not busy:
+            self.preview_button.configure(text="生成预览")
         self.preview_button.configure(state=state)
         self.print_outer_button.configure(state=state if self.result else "disabled")
         self.print_inner_button.configure(state=state if self.result and self.result.get("inner") else "disabled")
@@ -615,6 +720,8 @@ class LabelGeneratorApp(tk.Tk):
         self.inner_template_button.configure(state=template_state)
         self.open_outer_template_button.configure(state=template_state)
         self.open_inner_template_button.configure(state=template_state)
+        self.outer_print_count_entry.configure(state=template_state)
+        self.inner_print_count_entry.configure(state=template_state)
         self.shelf_life_combo.configure(state="disabled" if busy else "readonly")
         if busy:
             self.custom_shelf_life_entry.configure(state="disabled")
@@ -632,12 +739,19 @@ class LabelGeneratorApp(tk.Tk):
             messagebox.showwarning(APP_TITLE, "请输入 MO 号")
             return
 
+        if not is_valid_mo_no(mo_no):
+            message = f"MO号格式错误：{mo_no}。正确格式示例：MO88888888"
+            self.log(message)
+            messagebox.showwarning(APP_TITLE, message)
+            return
+
         try:
             printer_name = self.get_selected_printer()
         except ValueError as error:
             messagebox.showwarning(APP_TITLE, str(error))
             return
         self.set_busy(True)
+        self.preview_button.configure(text="预览生成中...")
         self.status_var.set("正在生成预览...")
         outer_template, inner_template = self.get_template_overrides()
         if not outer_template and not inner_template:
@@ -681,6 +795,54 @@ class LabelGeneratorApp(tk.Tk):
         except Exception as error:
             self.worker_queue.put(("error", error))
 
+    def get_label_total_count(self, label_type: str) -> int:
+        if not self.result:
+            return 0
+        label_result = self.result.get(label_type)
+        if not label_result:
+            return 0
+        try:
+            return int(str(label_result.get("total_label_count", "") or "0"))
+        except (TypeError, ValueError):
+            return 0
+
+    def parse_print_row_limit(self, label_type: str, value: str):
+        text = (value or "").strip()
+        if not text:
+            return None
+        label_name = "外标" if label_type == "outer" else "内标"
+        max_count = self.get_label_total_count(label_type)
+        if not text.isdigit():
+            raise ValueError(f"{label_name}打印张数必须是 1 到 {max_count} 的整数")
+        count = int(text)
+        if count < 1 or count > max_count:
+            raise ValueError(f"{label_name}打印张数超出范围：请输入 1 到 {max_count}")
+        return count
+
+    def get_print_row_limits(self, label_types):
+        limits = {}
+        if "outer" in label_types:
+            outer_limit = self.parse_print_row_limit("outer", self.entry_value(self.outer_print_count_var))
+            if outer_limit is not None:
+                limits["outer"] = outer_limit
+        if "inner" in label_types:
+            inner_limit = self.parse_print_row_limit("inner", self.entry_value(self.inner_print_count_var))
+            if inner_limit is not None:
+                limits["inner"] = inner_limit
+        return limits
+
+    def describe_print_row_limits(self, label_types, print_row_limits) -> str:
+        descriptions = []
+        for label_type in label_types:
+            label_name = "外标" if label_type == "outer" else "内标"
+            max_count = self.get_label_total_count(label_type)
+            limit = print_row_limits.get(label_type)
+            if limit is None:
+                descriptions.append(f"{label_name}：全部 {max_count} 张")
+            else:
+                descriptions.append(f"{label_name}：仅打印前 {limit} 张（共 {max_count} 张）")
+        return "\n".join(descriptions)
+
     def start_print(self, label_types) -> None:
         if not self.result:
             return
@@ -716,9 +878,19 @@ class LabelGeneratorApp(tk.Tk):
         self.log(f"开始打印：{', '.join(label_types)}")
         if printer_name:
             self.log(f"打印机：{printer_name}")
+        try:
+            print_row_limits = self.get_print_row_limits(label_types)
+        except ValueError as error:
+            messagebox.showwarning(APP_TITLE, str(error))
+            self.set_busy(False)
+            self.update_action_state()
+            return
+        limit_description = self.describe_print_row_limits(label_types, print_row_limits)
+        if limit_description:
+            self.log(limit_description)
         threading.Thread(
             target=self.print_worker,
-            args=(mo_no, label_types, shelf_life, printer_name, outer_template, inner_template),
+            args=(mo_no, label_types, shelf_life, printer_name, outer_template, inner_template, print_row_limits),
             daemon=True,
         ).start()
 
@@ -730,6 +902,7 @@ class LabelGeneratorApp(tk.Tk):
         printer_name: str,
         outer_template: str,
         inner_template: str,
+        print_row_limits,
     ) -> None:
         try:
             self.worker_queue.put((
@@ -741,6 +914,7 @@ class LabelGeneratorApp(tk.Tk):
                     shelf_life=shelf_life,
                     outer_template_override=outer_template,
                     inner_template_override=inner_template,
+                    print_row_limits=print_row_limits,
                 ),
             ))
         except Exception as error:

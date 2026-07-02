@@ -16,6 +16,7 @@ from bartender_preview_runner import (
 from app_paths import RUNTIME_DIR
 from config import BARTENDER_EXE, BARTENDER_PRINTER
 from erp_runtime_csv import (
+    DEFAULT_SHELF_LIFE_MONTHS,
     RuntimeCsvError,
     build_runtime_csv_row,
     fetch_mo_rows,
@@ -34,6 +35,8 @@ RUNTIME_CSV = RUNTIME_DIR / "current_label.csv"
 PRINT_CSV_DIR = JOB_OUTPUT_DIR / "print_csv"
 LABEL_CSV_FIELDS = [
     "MO_NO",
+    "SO_NO",
+    "CUS_OS_NO",
     "ORDER_NO",
     "CUS_NO",
     "SUP_PRD_NO",
@@ -103,6 +106,8 @@ def build_label_csv_row(
 ) -> Dict[str, str]:
     return {
         "MO_NO": runtime_row.get("MO_NO", ""),
+        "SO_NO": runtime_row.get("SO_NO", ""),
+        "CUS_OS_NO": runtime_row.get("CUS_OS_NO", ""),
         "ORDER_NO": runtime_row.get("ORDER_NO", ""),
         "CUS_NO": runtime_row.get("CUS_NO", ""),
         "SUP_PRD_NO": runtime_row.get("SUP_PRD_NO", ""),
@@ -198,12 +203,23 @@ def write_label_csv(
     runtime_rows: List[Dict[str, str]],
     label_type: str,
     output_path: Optional[Path] = None,
+    row_limit: Optional[int] = None,
 ) -> Path:
     rows = build_label_csv_rows(runtime_rows, label_type)
+    if row_limit is not None:
+        if row_limit < 1 or row_limit > len(rows):
+            label_name = "外标" if label_type == "outer" else "内标"
+            raise LabelServiceError(f"{label_name}打印张数必须在 1 到 {len(rows)} 之间")
+        rows = rows[:row_limit]
     return write_runtime_csv(rows, output_path or RUNTIME_CSV, fields=LABEL_CSV_FIELDS)
 
 
-def write_print_csv_snapshot(runtime_rows: List[Dict[str, str]], label_type: str, mo_no: str) -> Path:
+def write_print_csv_snapshot(
+    runtime_rows: List[Dict[str, str]],
+    label_type: str,
+    mo_no: str,
+    row_limit: Optional[int] = None,
+) -> Path:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     csv_dir = PRINT_CSV_DIR / safe_segment(mo_no)
     csv_path = csv_dir / f"{timestamp}_{safe_segment(label_type)}.csv"
@@ -211,7 +227,7 @@ def write_print_csv_snapshot(runtime_rows: List[Dict[str, str]], label_type: str
     while csv_path.exists():
         csv_path = csv_dir / f"{timestamp}_{safe_segment(label_type)}_{suffix}.csv"
         suffix += 1
-    return write_label_csv(runtime_rows, label_type, output_path=csv_path)
+    return write_label_csv(runtime_rows, label_type, output_path=csv_path, row_limit=row_limit)
 
 
 def find_template_path_by_label_types(csv_path: Path, label_types: Iterable[str]) -> str:
@@ -413,7 +429,7 @@ def generate_label_preview(
 
     result = build_common_result(mo_no, runtime_row)
     result["shelf_life_input"] = shelf_life
-    result["shelf_life_source"] = "手动输入" if shelf_life else "默认规则（罐/铁桶24月，袋12月）"
+    result["shelf_life_source"] = "手动输入" if shelf_life else f"默认一年（{DEFAULT_SHELF_LIFE_MONTHS}个月）"
     result["printer_name"] = printer_name
     result["outer_template_override"] = outer_template_override
     result["inner_template_override"] = inner_template_override
@@ -485,6 +501,7 @@ def print_labels(
     shelf_life: str = "",
     outer_template_override: str = "",
     inner_template_override: str = "",
+    print_row_limits: Optional[Dict[str, int]] = None,
 ) -> Dict[str, object]:
     requested = [item for item in label_types if item in ("outer", "inner")]
     if not requested:
@@ -521,8 +538,9 @@ def print_labels(
         if not has_label_rows(runtime_rows, label_type):
             continue
 
-        write_label_csv(runtime_rows, label_type)
-        csv_path = write_print_csv_snapshot(runtime_rows, label_type, mo_no)
+        row_limit = (print_row_limits or {}).get(label_type)
+        write_label_csv(runtime_rows, label_type, row_limit=row_limit)
+        csv_path = write_print_csv_snapshot(runtime_rows, label_type, mo_no, row_limit=row_limit)
         template = outer_template if label_type == "outer" else inner_template
         manifest_path = generate_final_label_job(
             template_path=template,
@@ -537,6 +555,7 @@ def print_labels(
             "type": label_type,
             "manifest": str(manifest_path),
             "template": template,
+            "row_limit": row_limit or "",
         })
 
     result = build_common_result(mo_no, runtime_row)
