@@ -2,6 +2,7 @@ $ErrorActionPreference = "Stop"
 
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ProjectRoot
+$DistDir = Join-Path $ProjectRoot "dist\LabelGenerator"
 
 function Invoke-Checked {
     param(
@@ -17,9 +18,11 @@ function Invoke-Checked {
     }
 }
 
-Invoke-Checked python -m PyInstaller --clean .\LabelGenerator.spec
+if (Test-Path $DistDir) {
+    Remove-Item -LiteralPath $DistDir -Recurse -Force
+}
 
-$DistDir = Join-Path $ProjectRoot "dist\LabelGenerator"
+Invoke-Checked python -m PyInstaller --clean .\LabelGenerator.spec
 if (!(Test-Path $DistDir)) {
     throw "Build output directory does not exist: $DistDir"
 }
@@ -27,6 +30,7 @@ if (!(Test-Path $DistDir)) {
 $itemsToCopy = @(
     "template_mapping.xlsx",
     "字段变量说明.md",
+    "公司目录配置.txt",
     "docs"
 )
 

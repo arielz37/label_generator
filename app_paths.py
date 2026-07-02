@@ -42,6 +42,14 @@ def resolve_setting_path(value: str, default: Path) -> Path:
     return path.resolve()
 
 
+def serialize_setting_path(path: Path) -> str:
+    resolved = Path(path).resolve()
+    try:
+        return str(resolved.relative_to(PROJECT_ROOT))
+    except ValueError:
+        return str(resolved)
+
+
 def _configured_path(key: str, default: Path) -> Path:
     return resolve_setting_path(load_app_settings().get(key, ""), default)
 
@@ -53,9 +61,9 @@ TEMPLATE_MAPPING_FILE = _configured_path("template_mapping_file", DEFAULT_TEMPLA
 
 def save_path_settings(template_root: Path, package_name_file: Path, template_mapping_file: Path) -> None:
     settings = load_app_settings()
-    settings["template_root"] = str(Path(template_root).resolve())
-    settings["package_name_file"] = str(Path(package_name_file).resolve())
-    settings["template_mapping_file"] = str(Path(template_mapping_file).resolve())
+    settings["template_root"] = serialize_setting_path(template_root)
+    settings["package_name_file"] = serialize_setting_path(package_name_file)
+    settings["template_mapping_file"] = serialize_setting_path(template_mapping_file)
     with APP_SETTINGS_FILE.open("w", encoding="utf-8") as file:
         json.dump(settings, file, ensure_ascii=False, indent=2)
 

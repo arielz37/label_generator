@@ -30,7 +30,13 @@ APP_TITLE = "标签生成工作台"
 LOG_RETENTION_DAYS = 7
 MO_NO_PATTERN = re.compile(r"^MO\d{8}$")
 SHELF_LIFE_DEFAULT_TEXT = "默认12个月"
-PRINTER_DEFAULT_TEXT = "默认系统打印机"
+PRINTER_DEFAULT_TEXT = "使用模板默认打印机"
+COMPANY_PATH_SETTINGS_FILE = PROJECT_ROOT / "公司目录配置.txt"
+COMPANY_PATH_SETTING_KEYS = {
+    "template_root": ("模板搜索目录", "template_root"),
+    "package_name_file": ("BOM料号名汇总", "BOM料号汇总", "package_name_file"),
+    "template_mapping_file": ("模板映射表", "模板映射标", "template_mapping_file"),
+}
 
 
 def cleanup_old_logs() -> None:
@@ -502,10 +508,20 @@ class LabelGeneratorApp(tk.Tk):
         buttons.grid(row=4, column=0, columnspan=3, sticky="e")
         ttk.Button(
             buttons,
+            text="一键配置公司目录",
+            command=lambda: self.apply_company_path_preset(
+                dialog,
+                template_root_var,
+                package_name_file_var,
+                template_mapping_file_var,
+            ),
+        ).grid(row=0, column=0, padx=(0, 8))
+        ttk.Button(
+            buttons,
             text="恢复默认",
             command=lambda: self.reset_settings_paths(template_root_var, package_name_file_var, template_mapping_file_var),
-        ).grid(row=0, column=0, padx=(0, 8))
-        ttk.Button(buttons, text="取消", command=dialog.destroy).grid(row=0, column=1, padx=(0, 8))
+        ).grid(row=0, column=1, padx=(0, 8))
+        ttk.Button(buttons, text="取消", command=dialog.destroy).grid(row=0, column=2, padx=(0, 8))
         ttk.Button(
             buttons,
             text="保存",
@@ -515,7 +531,7 @@ class LabelGeneratorApp(tk.Tk):
                 package_name_file_var,
                 template_mapping_file_var,
             ),
-        ).grid(row=0, column=2)
+        ).grid(row=0, column=3)
 
         template_entry.focus_set()
         self.wait_window(dialog)
@@ -555,6 +571,51 @@ class LabelGeneratorApp(tk.Tk):
         template_root_var.set(str(DEFAULT_TEMPLATE_ROOT))
         package_name_file_var.set(str(DEFAULT_PACKAGE_NAME_FILE))
         template_mapping_file_var.set(str(DEFAULT_TEMPLATE_MAPPING_FILE))
+
+    def load_company_path_preset(self) -> dict[str, str]:
+        if not COMPANY_PATH_SETTINGS_FILE.exists():
+            raise FileNotFoundError(f"公司目录配置文件不存在：{COMPANY_PATH_SETTINGS_FILE}")
+
+        values = {}
+        with COMPANY_PATH_SETTINGS_FILE.open("r", encoding="utf-8") as file:
+            for line in file:
+                text = line.strip()
+                if not text or text.startswith("#") or "=" not in text:
+                    continue
+                key, value = [part.strip() for part in text.split("=", 1)]
+                if not value:
+                    continue
+                for target_key, aliases in COMPANY_PATH_SETTING_KEYS.items():
+                    if key in aliases:
+                        values[target_key] = value
+                        break
+
+        missing = [
+            aliases[0]
+            for target_key, aliases in COMPANY_PATH_SETTING_KEYS.items()
+            if target_key not in values
+        ]
+        if missing:
+            raise ValueError("公司目录配置缺少字段：" + "、".join(missing))
+        return values
+
+    def apply_company_path_preset(
+        self,
+        dialog: tk.Toplevel,
+        template_root_var: tk.StringVar,
+        package_name_file_var: tk.StringVar,
+        template_mapping_file_var: tk.StringVar,
+    ) -> None:
+        try:
+            values = self.load_company_path_preset()
+        except (OSError, ValueError) as error:
+            messagebox.showwarning(APP_TITLE, str(error), parent=dialog)
+            return
+
+        template_root_var.set(values["template_root"])
+        package_name_file_var.set(values["package_name_file"])
+        template_mapping_file_var.set(values["template_mapping_file"])
+        self.log(f"已读取公司目录配置：{COMPANY_PATH_SETTINGS_FILE}")
 
     def normalize_settings_path(self, value: str) -> Path:
         path = Path(value.strip())
@@ -637,7 +698,7 @@ class LabelGeneratorApp(tk.Tk):
     def get_selected_printer(self) -> str:
         printer_name = self.printer_var.get().strip()
         if printer_name == PRINTER_DEFAULT_TEXT:
-            printer_name = get_windows_default_printer()
+            return ""
         if printer_name and is_virtual_printer_name(printer_name):
             message = (
                 f"当前选择的是虚拟打印机：{printer_name}。"
@@ -763,6 +824,8 @@ class LabelGeneratorApp(tk.Tk):
         self.log(f"开始生成预览：{mo_no}")
         if printer_name:
             self.log(f"预览打印机：{printer_name}")
+        else:
+            self.log(f"预览打印机：{PRINTER_DEFAULT_TEXT}")
         if outer_template:
             self.log(f"UI指定外标模板：{outer_template}")
         if inner_template:
@@ -878,6 +941,8 @@ class LabelGeneratorApp(tk.Tk):
         self.log(f"开始打印：{', '.join(label_types)}")
         if printer_name:
             self.log(f"打印机：{printer_name}")
+        else:
+            self.log(f"打印机：{PRINTER_DEFAULT_TEXT}")
         try:
             print_row_limits = self.get_print_row_limits(label_types)
         except ValueError as error:
@@ -982,8 +1047,8 @@ class LabelGeneratorApp(tk.Tk):
             return
         if not printer_name and not messagebox.askyesno(
             APP_TITLE,
-            "当前没有选择打印机。\n\n"
-            "BarTender 打开并保存模板时，可能把模板打印机自动改为系统默认打印机。\n"
+            "当前设置为使用模板默认打印机。\n\n"
+            "BarTender 打开并保存模板时，可能沿用模板内保存的打印机设置。\n"
             "仍然继续吗？",
         ):
             return
@@ -993,7 +1058,7 @@ class LabelGeneratorApp(tk.Tk):
             "确认要批量给所选目录下的 BarTender 模板设置数据库连接吗？\n\n"
             f"目录：{template_root}\n"
             f"模板数量：{template_count}\n\n"
-            f"打印机：{printer_name or '-'}\n\n"
+            f"打印机：{printer_name or PRINTER_DEFAULT_TEXT}\n\n"
             "程序会保存模板，并在 template_backups/ 下备份原文件。\n"
             "运行前请关闭 BarTender 中已打开的模板。",
         ):
@@ -1130,7 +1195,7 @@ class LabelGeneratorApp(tk.Tk):
             f"有效期：{result.get('exp_date', '')}",
             f"保质期：{result.get('shelf_life', '-') or '-'}",
             f"保质期来源：{result.get('shelf_life_source', '-') or '-'}",
-            f"打印机：{result.get('printer_name', '-') or '-'}",
+            f"打印机：{result.get('printer_name', '') or PRINTER_DEFAULT_TEXT}",
             f"是否有内标：{'是' if result.get('has_inner_label') else '否'}",
             "",
             f"外标数量：{outer.get('qty', '-')}",
