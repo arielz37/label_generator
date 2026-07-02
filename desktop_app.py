@@ -22,6 +22,7 @@ import app_paths
 from app_paths import APP_SETTINGS_FILE, DEFAULT_PACKAGE_NAME_FILE, DEFAULT_TEMPLATE_MAPPING_FILE, DEFAULT_TEMPLATE_ROOT, LOG_DIR, PACKAGE_NAME_FILE, PROJECT_ROOT, TEMPLATE_MAPPING_FILE, TEMPLATE_ROOT, save_path_settings
 from config import BARTENDER_EXE, BARTENDER_PRINTER
 from docs.batch_set_bartender_database import run_batch_database_setup
+from erp_runtime_csv import fetch_bom_material_names_for_mo
 from generate_template_mapping import update_template_mapping_from_directory
 from label_service import find_template_for_mo, generate_label_preview, print_labels
 
@@ -31,6 +32,7 @@ LOG_RETENTION_DAYS = 7
 MO_NO_PATTERN = re.compile(r"^MO\d{8}$")
 SHELF_LIFE_DEFAULT_TEXT = "默认12个月"
 PRINTER_DEFAULT_TEXT = "使用模板默认打印机"
+PACKAGE_AUTO_TEXT = "自动判断"
 COMPANY_PATH_SETTINGS_FILE = PROJECT_ROOT / "公司目录配置.txt"
 COMPANY_PATH_SETTING_KEYS = {
     "template_root": ("模板搜索目录", "template_root"),
@@ -142,6 +144,7 @@ class LabelGeneratorApp(tk.Tk):
         self.current_image_index = 0
         self.current_photo = None
         self.template_lookup_mo = ""
+        self.material_lookup_mo = ""
         self.worker_queue: "queue.Queue[tuple[str, object]]" = queue.Queue()
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         cleanup_old_logs()
@@ -271,13 +274,33 @@ class LabelGeneratorApp(tk.Tk):
             text="打开外标模板",
             command=lambda: self.open_template_file("outer"),
         )
-        self.open_outer_template_button.grid(row=2, column=3, padx=(0, 8), pady=(8, 0), sticky="w")
+        self.open_outer_template_button.grid(row=3, column=3, padx=(0, 8), pady=(8, 0), sticky="w")
         self.open_inner_template_button = ttk.Button(
             top,
             text="打开内标模板",
             command=lambda: self.open_template_file("inner"),
         )
-        self.open_inner_template_button.grid(row=2, column=8, padx=(0, 8), pady=(8, 0), sticky="w")
+        self.open_inner_template_button.grid(row=3, column=8, padx=(0, 8), pady=(8, 0), sticky="w")
+
+        self.outer_package_var = tk.StringVar(value=PACKAGE_AUTO_TEXT)
+        ttk.Label(top, text="外标包装").grid(row=2, column=3, sticky="e", padx=(0, 8), pady=(8, 0))
+        self.outer_package_combo = ttk.Combobox(
+            top,
+            textvariable=self.outer_package_var,
+            values=(PACKAGE_AUTO_TEXT,),
+            state="readonly",
+        )
+        self.outer_package_combo.grid(row=2, column=4, columnspan=3, sticky="ew", padx=(0, 8), pady=(8, 0))
+
+        self.inner_package_var = tk.StringVar(value=PACKAGE_AUTO_TEXT)
+        ttk.Label(top, text="内标包装").grid(row=2, column=8, sticky="e", padx=(0, 8), pady=(8, 0))
+        self.inner_package_combo = ttk.Combobox(
+            top,
+            textvariable=self.inner_package_var,
+            values=(PACKAGE_AUTO_TEXT,),
+            state="readonly",
+        )
+        self.inner_package_combo.grid(row=2, column=9, columnspan=3, sticky="ew", padx=(0, 8), pady=(8, 0))
 
         self.outer_print_count_var = tk.StringVar(value="")
         self.outer_print_count_entry = ttk.Entry(top, textvariable=self.outer_print_count_var, width=6)
@@ -397,6 +420,8 @@ class LabelGeneratorApp(tk.Tk):
             self.refresh_entry_placeholder(self.outer_template_entry)
             self.refresh_entry_placeholder(self.inner_template_entry)
             self.template_lookup_mo = ""
+        if self.material_lookup_mo and mo_no != self.material_lookup_mo:
+            self.reset_package_options()
 
     def on_mo_template_lookup(self, _event=None) -> None:
         self.populate_template_fields(show_errors=False)
@@ -407,6 +432,8 @@ class LabelGeneratorApp(tk.Tk):
             return False
         if self.template_lookup_mo == mo_no and (self.entry_value(self.outer_template_var) or self.entry_value(self.inner_template_var)):
             return True
+
+        self.populate_package_options(mo_no)
 
         try:
             outer_template = find_template_for_mo(mo_no, "outer")
@@ -436,6 +463,33 @@ class LabelGeneratorApp(tk.Tk):
         if inner_template:
             self.log(f"自动识别内标模板：{inner_template}")
         return True
+
+    def reset_package_options(self) -> None:
+        self.outer_package_combo.configure(values=(PACKAGE_AUTO_TEXT,))
+        self.inner_package_combo.configure(values=(PACKAGE_AUTO_TEXT,))
+        self.outer_package_var.set(PACKAGE_AUTO_TEXT)
+        self.inner_package_var.set(PACKAGE_AUTO_TEXT)
+        self.material_lookup_mo = ""
+
+    def populate_package_options(self, mo_no: str) -> None:
+        if self.material_lookup_mo == mo_no:
+            return
+        try:
+            names = fetch_bom_material_names_for_mo(mo_no)
+        except Exception as error:
+            self.reset_package_options()
+            self.log(f"未加载BOM原材料品名：{error}")
+            return
+
+        values = (PACKAGE_AUTO_TEXT,) + tuple(names)
+        current_outer = self.outer_package_var.get().strip()
+        current_inner = self.inner_package_var.get().strip()
+        self.outer_package_combo.configure(values=values)
+        self.inner_package_combo.configure(values=values)
+        self.outer_package_var.set(current_outer if current_outer in values else PACKAGE_AUTO_TEXT)
+        self.inner_package_var.set(current_inner if current_inner in values else PACKAGE_AUTO_TEXT)
+        self.material_lookup_mo = mo_no
+        self.log(f"已加载BOM原材料品名：{len(names)} 项")
 
     def choose_template_file(self, target_var: tk.StringVar) -> None:
         path_text = filedialog.askopenfilename(
@@ -695,6 +749,15 @@ class LabelGeneratorApp(tk.Tk):
     def get_template_overrides(self) -> tuple[str, str]:
         return self.entry_value(self.outer_template_var), self.entry_value(self.inner_template_var)
 
+    def get_package_overrides(self) -> tuple[str, str]:
+        outer_package = self.outer_package_var.get().strip()
+        inner_package = self.inner_package_var.get().strip()
+        if outer_package == PACKAGE_AUTO_TEXT:
+            outer_package = ""
+        if inner_package == PACKAGE_AUTO_TEXT:
+            inner_package = ""
+        return inner_package, outer_package
+
     def get_selected_printer(self) -> str:
         printer_name = self.printer_var.get().strip()
         if printer_name == PRINTER_DEFAULT_TEXT:
@@ -774,6 +837,8 @@ class LabelGeneratorApp(tk.Tk):
             if self.settings_menu_index is not None:
                 self.tools_menu.entryconfig(self.settings_menu_index, state=state)
         self.printer_combo.configure(state="disabled" if busy else "normal")
+        self.outer_package_combo.configure(state="disabled" if busy else "readonly")
+        self.inner_package_combo.configure(state="disabled" if busy else "readonly")
         template_state = "disabled" if busy else "normal"
         self.outer_template_entry.configure(state=template_state)
         self.inner_template_entry.configure(state=template_state)
@@ -815,6 +880,7 @@ class LabelGeneratorApp(tk.Tk):
         self.preview_button.configure(text="预览生成中...")
         self.status_var.set("正在生成预览...")
         outer_template, inner_template = self.get_template_overrides()
+        inner_package_name, outer_package_name = self.get_package_overrides()
         if not outer_template and not inner_template:
             if not self.populate_template_fields(show_errors=True):
                 self.set_busy(False)
@@ -830,9 +896,13 @@ class LabelGeneratorApp(tk.Tk):
             self.log(f"UI指定外标模板：{outer_template}")
         if inner_template:
             self.log(f"UI指定内标模板：{inner_template}")
+        if outer_package_name:
+            self.log(f"UI指定外标包装：{outer_package_name}")
+        if inner_package_name:
+            self.log(f"UI指定内标包装：{inner_package_name}")
         threading.Thread(
             target=self.preview_worker,
-            args=(mo_no, shelf_life, printer_name, outer_template, inner_template),
+            args=(mo_no, shelf_life, printer_name, outer_template, inner_template, inner_package_name, outer_package_name),
             daemon=True,
         ).start()
 
@@ -843,6 +913,8 @@ class LabelGeneratorApp(tk.Tk):
         printer_name: str,
         outer_template: str,
         inner_template: str,
+        inner_package_name: str,
+        outer_package_name: str,
     ) -> None:
         try:
             self.worker_queue.put((
@@ -853,6 +925,8 @@ class LabelGeneratorApp(tk.Tk):
                     printer_name=printer_name,
                     outer_template_override=outer_template,
                     inner_template_override=inner_template,
+                    inner_package_name=inner_package_name,
+                    outer_package_name=outer_package_name,
                 ),
             ))
         except Exception as error:
@@ -928,11 +1002,18 @@ class LabelGeneratorApp(tk.Tk):
             messagebox.showwarning(APP_TITLE, "打印机已修改，请重新生成预览后再打印。")
             return
         outer_template, inner_template = self.get_template_overrides()
+        inner_package_name, outer_package_name = self.get_package_overrides()
         if (
             outer_template != self.result.get("outer_template_override", "")
             or inner_template != self.result.get("inner_template_override", "")
         ):
             messagebox.showwarning(APP_TITLE, "指定模板已修改，请重新生成预览后再打印。")
+            return
+        if (
+            inner_package_name != self.result.get("inner_package_override", "")
+            or outer_package_name != self.result.get("outer_package_override", "")
+        ):
+            messagebox.showwarning(APP_TITLE, "指定包装已修改，请重新生成预览后再打印。")
             return
         if not messagebox.askyesno(APP_TITLE, f"确认打印 {mo_no} 的 {', '.join(label_types)} 标签？"):
             return
@@ -943,6 +1024,10 @@ class LabelGeneratorApp(tk.Tk):
             self.log(f"打印机：{printer_name}")
         else:
             self.log(f"打印机：{PRINTER_DEFAULT_TEXT}")
+        if outer_package_name:
+            self.log(f"打印外标包装：{outer_package_name}")
+        if inner_package_name:
+            self.log(f"打印内标包装：{inner_package_name}")
         try:
             print_row_limits = self.get_print_row_limits(label_types)
         except ValueError as error:
@@ -955,7 +1040,17 @@ class LabelGeneratorApp(tk.Tk):
             self.log(limit_description)
         threading.Thread(
             target=self.print_worker,
-            args=(mo_no, label_types, shelf_life, printer_name, outer_template, inner_template, print_row_limits),
+            args=(
+                mo_no,
+                label_types,
+                shelf_life,
+                printer_name,
+                outer_template,
+                inner_template,
+                inner_package_name,
+                outer_package_name,
+                print_row_limits,
+            ),
             daemon=True,
         ).start()
 
@@ -967,6 +1062,8 @@ class LabelGeneratorApp(tk.Tk):
         printer_name: str,
         outer_template: str,
         inner_template: str,
+        inner_package_name: str,
+        outer_package_name: str,
         print_row_limits,
     ) -> None:
         try:
@@ -979,6 +1076,8 @@ class LabelGeneratorApp(tk.Tk):
                     shelf_life=shelf_life,
                     outer_template_override=outer_template,
                     inner_template_override=inner_template,
+                    inner_package_name=inner_package_name,
+                    outer_package_name=outer_package_name,
                     print_row_limits=print_row_limits,
                 ),
             ))
@@ -1196,6 +1295,8 @@ class LabelGeneratorApp(tk.Tk):
             f"保质期：{result.get('shelf_life', '-') or '-'}",
             f"保质期来源：{result.get('shelf_life_source', '-') or '-'}",
             f"打印机：{result.get('printer_name', '') or PRINTER_DEFAULT_TEXT}",
+            f"UI指定外标包装：{result.get('outer_package_override', '') or '-'}",
+            f"UI指定内标包装：{result.get('inner_package_override', '') or '-'}",
             f"是否有内标：{'是' if result.get('has_inner_label') else '否'}",
             "",
             f"外标数量：{outer.get('qty', '-')}",

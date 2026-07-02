@@ -29,10 +29,12 @@ if (!(Test-Path $DistDir)) {
 
 $itemsToCopy = @(
     "template_mapping.xlsx",
-    "字段变量说明.md",
-    "公司目录配置.txt",
     "docs"
 )
+
+$itemsToCopy += Get-ChildItem -LiteralPath $ProjectRoot -Filter "*.txt" -File | ForEach-Object { $_.Name }
+$itemsToCopy += Get-ChildItem -LiteralPath $ProjectRoot -Filter "*.md" -File | ForEach-Object { $_.Name }
+$itemsToCopy = $itemsToCopy | Select-Object -Unique
 
 $packageNameFile = Get-ChildItem -LiteralPath $ProjectRoot -Filter "bom*.txt" -File | Select-Object -First 1
 if ($packageNameFile) {

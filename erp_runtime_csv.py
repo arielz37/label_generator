@@ -267,6 +267,27 @@ def select_outer_package_row(rows: List[Dict[str, Any]]) -> Optional[Dict[str, A
     )[0]
 
 
+def select_package_row_by_name(rows: List[Dict[str, Any]], package_name: str) -> Optional[Dict[str, Any]]:
+    name = (package_name or "").strip()
+    if not name:
+        return None
+    candidates = [
+        row
+        for row in rows
+        if format_csv_value(row.get("COMPONENT_NAME")).strip() == name
+    ]
+    if not candidates:
+        return None
+
+    return sorted(
+        candidates,
+        key=lambda row: (
+            -quantity_sort_value(row),
+            item_sort_value(row),
+        ),
+    )[0]
+
+
 def apply_package_row(result: Dict[str, str], prefix: str, row: Optional[Dict[str, Any]]) -> None:
     if row is None:
         return
@@ -280,37 +301,94 @@ def apply_package_row(result: Dict[str, str], prefix: str, row: Optional[Dict[st
     result[f"{prefix}_PACKAGE_NAME"] = format_csv_value(row.get("COMPONENT_NAME"))
 
 
-def fetch_bom_pack_quantities(product_code: str) -> Dict[str, str]:
+def fetch_bom_material_rows(product_code: str) -> List[Dict[str, Any]]:
     product_code = (product_code or "").strip()
     if not product_code:
-        return {}
+        return []
 
     conn = connect_erp()
     try:
         cursor = conn.cursor()
         cursor.execute(BOM_PACKAGE_QUERY, product_code)
         columns = [column[0] for column in cursor.description]
-        rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
     finally:
         conn.close()
 
-    result: Dict[str, str] = {}
-    inner_package_names = load_inner_package_names()
-    apply_package_row(result, "INNER", select_inner_package_row(rows, inner_package_names))
-    apply_package_row(result, "OUTER", select_outer_package_row(rows))
-    return result
+
+def fetch_bom_material_names(product_code: str) -> List[str]:
+    names: List[str] = []
+    for row in fetch_bom_material_rows(product_code):
+        name = format_csv_value(row.get("COMPONENT_NAME")).strip()
+        if name:
+            names.append(name)
+    return list(dict.fromkeys(names))
 
 
-def fetch_pack_quantities(product_code: str) -> Dict[str, str]:
+def fetch_bom_material_names_for_mo(mo_no: str) -> List[str]:
+    db_rows = fetch_mo_rows(mo_no)
+    if not db_rows:
+        raise RuntimeCsvError(f"未查询到 MO 数据：{mo_no}")
+    normalized = normalize_db_row(db_rows[0])
+    product_code = first_value(normalized, ("MRP_NO", "PRODUCT_CODE"))
+    return fetch_bom_material_names(product_code)
+
+
+def fetch_bom_pack_quantities(
+    product_code: str,
+    inner_package_name: str = "",
+    outer_package_name: str = "",
+) -> Dict[str, str]:
     product_code = (product_code or "").strip()
     if not product_code:
         return {}
 
-    cache_key = product_code.casefold()
+    rows = fetch_bom_material_rows(product_code)
+    result: Dict[str, str] = {}
+    inner_package_names = load_inner_package_names()
+    inner_row = (
+        select_package_row_by_name(rows, inner_package_name)
+        if inner_package_name
+        else select_inner_package_row(rows, inner_package_names)
+    )
+    outer_row = (
+        select_package_row_by_name(rows, outer_package_name)
+        if outer_package_name
+        else select_outer_package_row(rows)
+    )
+
+    if inner_package_name and inner_row is None:
+        raise RuntimeCsvError(f"BOM 中未找到 UI 指定的内标包装：{inner_package_name}")
+    if outer_package_name and outer_row is None:
+        raise RuntimeCsvError(f"BOM 中未找到 UI 指定的外标包装：{outer_package_name}")
+
+    apply_package_row(result, "INNER", inner_row)
+    apply_package_row(result, "OUTER", outer_row)
+    return result
+
+
+def fetch_pack_quantities(
+    product_code: str,
+    inner_package_name: str = "",
+    outer_package_name: str = "",
+) -> Dict[str, str]:
+    product_code = (product_code or "").strip()
+    if not product_code:
+        return {}
+
+    cache_key = "|".join([
+        product_code.casefold(),
+        (inner_package_name or "").strip().casefold(),
+        (outer_package_name or "").strip().casefold(),
+    ])
     if cache_key in PACKAGE_CACHE:
         return PACKAGE_CACHE[cache_key].copy()
 
-    result = fetch_bom_pack_quantities(product_code)
+    result = fetch_bom_pack_quantities(
+        product_code,
+        inner_package_name=inner_package_name,
+        outer_package_name=outer_package_name,
+    )
     if result:
         result["PACKAGE_SOURCE"] = "BOM"
 
@@ -472,7 +550,11 @@ def build_runtime_csv_row(
     options = runtime_options or {}
     qty = first_value(normalized_row, ("QTY",))
     product_code = first_value(normalized_row, ("MRP_NO", "PRODUCT_CODE"))
-    pack_options = fetch_pack_quantities(product_code)
+    pack_options = fetch_pack_quantities(
+        product_code,
+        inner_package_name=format_csv_value(options.get("INNER_PACKAGE_NAME_OVERRIDE")),
+        outer_package_name=format_csv_value(options.get("OUTER_PACKAGE_NAME_OVERRIDE")),
+    )
     mfg_date = first_value(normalized_row, ("MFG_DATE", "PROD_DATE"))
     shelf_life_months = (
         parse_shelf_life_months(options.get("SHELF_LIFE"))

@@ -329,8 +329,19 @@ def set_inner_label_enabled(runtime_rows: List[Dict[str, str]], enabled: bool) -
             row["INNER_LABEL_COUNT"] = "0"
 
 
-def prepare_runtime(mo_no: str, shelf_life: str = "") -> Dict[str, object]:
-    runtime_options = {"SHELF_LIFE": shelf_life} if shelf_life else None
+def prepare_runtime(
+    mo_no: str,
+    shelf_life: str = "",
+    inner_package_name: str = "",
+    outer_package_name: str = "",
+) -> Dict[str, object]:
+    runtime_options = {}
+    if shelf_life:
+        runtime_options["SHELF_LIFE"] = shelf_life
+    if inner_package_name:
+        runtime_options["INNER_PACKAGE_NAME_OVERRIDE"] = inner_package_name
+    if outer_package_name:
+        runtime_options["OUTER_PACKAGE_NAME_OVERRIDE"] = outer_package_name
     runtime_rows = build_runtime_rows_for_mo(mo_no, runtime_options=runtime_options)
     csv_path = write_lookup_csv(runtime_rows)
 
@@ -399,8 +410,15 @@ def generate_label_preview(
     printer_name: str = BARTENDER_PRINTER,
     outer_template_override: str = "",
     inner_template_override: str = "",
+    inner_package_name: str = "",
+    outer_package_name: str = "",
 ) -> Dict[str, object]:
-    prepared = prepare_runtime(mo_no, shelf_life=shelf_life)
+    prepared = prepare_runtime(
+        mo_no,
+        shelf_life=shelf_life,
+        inner_package_name=inner_package_name,
+        outer_package_name=outer_package_name,
+    )
     runtime_rows: List[Dict[str, str]] = prepared["runtime_rows"]  # type: ignore[assignment]
     csv_path: Path = prepared["csv_path"]  # type: ignore[assignment]
     runtime_row = runtime_rows[0]
@@ -433,6 +451,8 @@ def generate_label_preview(
     result["printer_name"] = printer_name
     result["outer_template_override"] = outer_template_override
     result["inner_template_override"] = inner_template_override
+    result["inner_package_override"] = inner_package_name
+    result["outer_package_override"] = outer_package_name
     if inner_missing_notice:
         result["notices"].append(inner_missing_notice)  # type: ignore[union-attr]
 
@@ -501,13 +521,20 @@ def print_labels(
     shelf_life: str = "",
     outer_template_override: str = "",
     inner_template_override: str = "",
+    inner_package_name: str = "",
+    outer_package_name: str = "",
     print_row_limits: Optional[Dict[str, int]] = None,
 ) -> Dict[str, object]:
     requested = [item for item in label_types if item in ("outer", "inner")]
     if not requested:
         raise LabelServiceError("请选择要打印的标签类型")
 
-    prepared = prepare_runtime(mo_no, shelf_life=shelf_life)
+    prepared = prepare_runtime(
+        mo_no,
+        shelf_life=shelf_life,
+        inner_package_name=inner_package_name,
+        outer_package_name=outer_package_name,
+    )
     runtime_rows: List[Dict[str, str]] = prepared["runtime_rows"]  # type: ignore[assignment]
     csv_path: Path = prepared["csv_path"]  # type: ignore[assignment]
     runtime_row = runtime_rows[0]
@@ -560,6 +587,8 @@ def print_labels(
 
     result = build_common_result(mo_no, runtime_row)
     result["printer_name"] = printer_name
+    result["inner_package_override"] = inner_package_name
+    result["outer_package_override"] = outer_package_name
     result["printed"] = printed
     return result
 

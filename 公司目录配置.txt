@@ -1,5 +1,5 @@
 # 工具 -> 更改参数和路径 -> 一键配置公司目录 会读取这里。
 # 修改等号右侧路径即可，字段名不要改。
 模板搜索目录=\\desktop-avq1adc\客服共享\标签模板汇总（自动生成用）
-BOM料号名汇总=\\desktop-avq1adc\客服共享\标签自动生成\bom料号汇总.txt
+BOM料号名汇总=\\desktop-avq1adc\客服共享\标签自动生成\bom料号名汇总.txt
 模板映射表=\\desktop-avq1adc\客服共享\标签数据源.xlsx
