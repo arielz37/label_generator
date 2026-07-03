@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 import queue
 import re
+import shutil
 import subprocess
 import threading
 from datetime import datetime, timedelta
@@ -20,7 +22,7 @@ except ModuleNotFoundError as error:
 from bartender_label_runner import OUTPUT_DIR, resolve_template_path
 import app_paths
 from app_paths import APP_SETTINGS_FILE, DEFAULT_PACKAGE_NAME_FILE, DEFAULT_TEMPLATE_MAPPING_FILE, DEFAULT_TEMPLATE_ROOT, LOG_DIR, PACKAGE_NAME_FILE, PROJECT_ROOT, TEMPLATE_MAPPING_FILE, TEMPLATE_ROOT, save_path_settings
-from config import BARTENDER_EXE, BARTENDER_PRINTER
+from config import BARTENDER_EXE, BARTENDER_PRINTER, ERP_DATABASE, ERP_DRIVER, ERP_PASSWORD, ERP_SERVER, ERP_USER
 from docs.batch_set_bartender_database import run_batch_database_setup
 from erp_runtime_csv import fetch_bom_material_names_for_mo
 from generate_template_mapping import update_template_mapping_from_directory
@@ -152,6 +154,7 @@ class LabelGeneratorApp(tk.Tk):
         self.tools_menu = None
         self.template_db_menu_index = None
         self.mapping_menu_index = None
+        self.environment_check_menu_index = None
         self.settings_menu_index = None
         self.entry_placeholders = {}
         self.placeholder_texts = set()
@@ -209,6 +212,8 @@ class LabelGeneratorApp(tk.Tk):
         self.tools_menu.add_command(label="更新模板映射", command=self.start_template_mapping_update)
         self.mapping_menu_index = self.tools_menu.index("end")
         self.tools_menu.add_separator()
+        self.tools_menu.add_command(label="环境自检", command=self.start_environment_check)
+        self.environment_check_menu_index = self.tools_menu.index("end")
         self.tools_menu.add_command(label="更改参数和路径", command=self.open_settings_dialog)
         self.settings_menu_index = self.tools_menu.index("end")
         menu_bar.add_cascade(label="工具", menu=self.tools_menu)
@@ -836,6 +841,8 @@ class LabelGeneratorApp(tk.Tk):
                 self.tools_menu.entryconfig(self.template_db_menu_index, state=state)
             if self.mapping_menu_index is not None:
                 self.tools_menu.entryconfig(self.mapping_menu_index, state=state)
+            if self.environment_check_menu_index is not None:
+                self.tools_menu.entryconfig(self.environment_check_menu_index, state=state)
             if self.settings_menu_index is not None:
                 self.tools_menu.entryconfig(self.settings_menu_index, state=state)
         self.printer_combo.configure(state="disabled" if busy else "normal")
@@ -1190,6 +1197,195 @@ class LabelGeneratorApp(tk.Tk):
         except Exception as error:
             self.worker_queue.put(("error", error))
 
+    def start_environment_check(self) -> None:
+        try:
+            printer_name = self.get_selected_printer()
+        except ValueError as error:
+            messagebox.showwarning(APP_TITLE, str(error))
+            return
+        self.set_busy(True)
+        self.status_var.set("正在执行环境自检...")
+        self.log("开始环境自检")
+        threading.Thread(target=self.environment_check_worker, args=(printer_name,), daemon=True).start()
+
+    def environment_check_worker(self, printer_name: str) -> None:
+        try:
+            result = self.run_environment_check(printer_name=printer_name)
+            self.worker_queue.put(("environment_check_result", result))
+        except Exception as error:
+            self.worker_queue.put(("error", error))
+
+    def add_check_result(self, rows: list, status: str, item: str, detail: str) -> None:
+        rows.append({"status": status, "item": item, "detail": detail})
+
+    def check_write_access(self, rows: list, path: Path, item: str) -> None:
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+            probe = path / f".write_test_{datetime.now().strftime('%Y%m%d%H%M%S%f')}.tmp"
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink(missing_ok=True)
+            self.add_check_result(rows, "OK", item, f"可写：{path}")
+        except Exception as error:
+            self.add_check_result(rows, "FAIL", item, f"不可写：{path}；{error}")
+
+    def resolved_bartender_exe(self) -> str:
+        path = Path(BARTENDER_EXE)
+        if path.exists():
+            return str(path)
+        found = shutil.which(BARTENDER_EXE)
+        return found or BARTENDER_EXE
+
+    def get_file_version(self, path: str) -> str:
+        try:
+            import win32api
+
+            info = win32api.GetFileVersionInfo(path, "\\")
+            ms = info["FileVersionMS"]
+            ls = info["FileVersionLS"]
+            return ".".join(
+                str(part)
+                for part in (
+                    ms >> 16,
+                    ms & 0xFFFF,
+                    ls >> 16,
+                    ls & 0xFFFF,
+                )
+            )
+        except Exception:
+            return ""
+
+    def run_environment_check(self, printer_name: str = "") -> dict:
+        rows = []
+
+        self.add_check_result(rows, "OK", "程序目录", str(PROJECT_ROOT))
+        self.check_write_access(rows, LOG_DIR, "日志目录写入")
+        self.check_write_access(rows, PROJECT_ROOT / "runtime_data", "runtime_data 写入")
+
+        bartender_exe = self.resolved_bartender_exe()
+        if Path(bartender_exe).exists():
+            version = self.get_file_version(bartender_exe)
+            detail = f"{bartender_exe}" + (f"；版本 {version}" if version else "")
+            self.add_check_result(rows, "OK", "BarTender", detail)
+        else:
+            self.add_check_result(rows, "FAIL", "BarTender", f"未找到 bartend.exe：{BARTENDER_EXE}")
+
+        try:
+            printers = list_windows_printers()
+            if printers:
+                detail = f"已安装 {len(printers)} 个打印机"
+                if printer_name:
+                    detail += f"；当前选择：{printer_name}"
+                    if printer_name not in printers:
+                        self.add_check_result(rows, "WARN", "打印机", f"{detail}；当前选择不在 Windows 打印机列表中")
+                    else:
+                        self.add_check_result(rows, "OK", "打印机", detail)
+                else:
+                    self.add_check_result(rows, "OK", "打印机", detail + "；使用模板默认打印机")
+            else:
+                self.add_check_result(rows, "WARN", "打印机", "Windows 未返回已安装打印机列表")
+        except Exception as error:
+            self.add_check_result(rows, "FAIL", "打印机", str(error))
+
+        if TEMPLATE_ROOT.exists() and TEMPLATE_ROOT.is_dir():
+            try:
+                has_template = any(TEMPLATE_ROOT.rglob("*.btw"))
+                detail = f"可访问：{TEMPLATE_ROOT}"
+                if not has_template:
+                    self.add_check_result(rows, "WARN", "模板目录", detail + "；未发现 .btw 模板")
+                else:
+                    self.add_check_result(rows, "OK", "模板目录", detail)
+            except Exception as error:
+                self.add_check_result(rows, "FAIL", "模板目录", f"无法扫描：{TEMPLATE_ROOT}；{error}")
+        else:
+            self.add_check_result(rows, "FAIL", "模板目录", f"不存在或不可访问：{TEMPLATE_ROOT}")
+
+        if TEMPLATE_MAPPING_FILE.exists() and TEMPLATE_MAPPING_FILE.is_file():
+            try:
+                from template_mapping_lookup import read_mapping_rows
+
+                mapping_rows = read_mapping_rows(TEMPLATE_MAPPING_FILE)
+                self.add_check_result(rows, "OK", "模板映射表", f"可读取 {len(mapping_rows)} 行：{TEMPLATE_MAPPING_FILE}")
+            except Exception as error:
+                self.add_check_result(rows, "FAIL", "模板映射表", f"读取失败：{TEMPLATE_MAPPING_FILE}；{error}")
+        else:
+            self.add_check_result(rows, "FAIL", "模板映射表", f"不存在或不可访问：{TEMPLATE_MAPPING_FILE}")
+
+        if PACKAGE_NAME_FILE.exists() and PACKAGE_NAME_FILE.is_file():
+            try:
+                line_count = len(PACKAGE_NAME_FILE.read_text(encoding="utf-8-sig").splitlines())
+                self.add_check_result(rows, "OK", "BOM料号名汇总", f"可读取 {line_count} 行：{PACKAGE_NAME_FILE}")
+            except Exception as error:
+                self.add_check_result(rows, "FAIL", "BOM料号名汇总", f"读取失败：{PACKAGE_NAME_FILE}；{error}")
+        else:
+            self.add_check_result(rows, "FAIL", "BOM料号名汇总", f"不存在或不可访问：{PACKAGE_NAME_FILE}")
+
+        try:
+            import pyodbc
+
+            drivers = list(pyodbc.drivers())
+            if ERP_DRIVER in drivers:
+                self.add_check_result(rows, "OK", "ODBC Driver", f"已安装：{ERP_DRIVER}")
+            else:
+                self.add_check_result(rows, "FAIL", "ODBC Driver", f"未找到 {ERP_DRIVER}；当前驱动：{', '.join(drivers) or '-'}")
+
+            missing = [
+                name
+                for name, value in (
+                    ("ERP_SERVER", ERP_SERVER),
+                    ("ERP_DATABASE", ERP_DATABASE),
+                    ("ERP_USER", ERP_USER),
+                    ("ERP_PASSWORD", ERP_PASSWORD),
+                )
+                if not value
+            ]
+            if missing:
+                self.add_check_result(rows, "FAIL", "ERP环境变量", "缺少：" + "、".join(missing))
+            else:
+                self.add_check_result(rows, "OK", "ERP环境变量", f"SERVER={ERP_SERVER}；DATABASE={ERP_DATABASE}；USER={ERP_USER}")
+                try:
+                    conn = pyodbc.connect(
+                        f"DRIVER={{{ERP_DRIVER}}};"
+                        f"SERVER={ERP_SERVER};"
+                        f"DATABASE={ERP_DATABASE};"
+                        f"UID={ERP_USER};"
+                        f"PWD={ERP_PASSWORD};"
+                        "Encrypt=no;"
+                        "TrustServerCertificate=yes;",
+                        timeout=3,
+                    )
+                    conn.close()
+                    self.add_check_result(rows, "OK", "ERP连接", "连接成功")
+                except Exception as error:
+                    self.add_check_result(rows, "FAIL", "ERP连接", str(error))
+        except Exception as error:
+            self.add_check_result(rows, "FAIL", "pyodbc", f"不可用：{error}")
+
+        try:
+            import docs.batch_set_bartender_database as batch_database
+            import erp_runtime_csv
+            import label_service
+
+            if erp_runtime_csv.LABEL_CSV_FIELDS == label_service.LABEL_CSV_FIELDS == batch_database.CSV_FIELDS:
+                self.add_check_result(rows, "OK", "CSV字段表", f"字段数 {len(label_service.LABEL_CSV_FIELDS)}，三处一致")
+            else:
+                self.add_check_result(rows, "FAIL", "CSV字段表", "erp_runtime_csv / label_service / batch_set_bartender_database 字段不一致")
+        except Exception as error:
+            self.add_check_result(rows, "FAIL", "CSV字段表", str(error))
+
+        report_path = LOG_DIR / f"environment_check_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        lines = ["环境自检报告", f"时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ""]
+        for row in rows:
+            lines.append(f"[{row['status']}] {row['item']}：{row['detail']}")
+        report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        return {
+            "rows": rows,
+            "report": str(report_path),
+            "ok": sum(1 for row in rows if row["status"] == "OK"),
+            "warn": sum(1 for row in rows if row["status"] == "WARN"),
+            "fail": sum(1 for row in rows if row["status"] == "FAIL"),
+        }
+
     def poll_worker_queue(self) -> None:
         try:
             while True:
@@ -1206,6 +1402,8 @@ class LabelGeneratorApp(tk.Tk):
                     self.handle_template_database_setup_result(payload)
                 elif kind == "template_mapping_result":
                     self.handle_template_mapping_update_result(payload)
+                elif kind == "environment_check_result":
+                    self.handle_environment_check_result(payload)
                 elif kind == "error":
                     self.handle_error(payload)
         except queue.Empty:
@@ -1275,6 +1473,53 @@ class LabelGeneratorApp(tk.Tk):
             f"本次新增：{result.get('added', 0)}\n"
             f"输出文件：{result.get('output', '')}",
         )
+
+    def handle_environment_check_result(self, result) -> None:
+        self.set_busy(False)
+        self.update_action_state()
+        fail = result.get("fail", 0)
+        warn = result.get("warn", 0)
+        ok = result.get("ok", 0)
+        self.status_var.set(f"环境自检完成：OK {ok}，WARN {warn}，FAIL {fail}")
+        self.log(f"环境自检完成：OK {ok}，WARN {warn}，FAIL {fail}，报告 {result.get('report', '')}")
+
+        dialog = tk.Toplevel(self)
+        dialog.title("环境自检报告")
+        dialog.transient(self)
+        dialog.geometry("880x560")
+        dialog.minsize(760, 420)
+
+        frame = ttk.Frame(dialog, padding=12)
+        frame.grid(row=0, column=0, sticky="nsew")
+        dialog.rowconfigure(0, weight=1)
+        dialog.columnconfigure(0, weight=1)
+        frame.rowconfigure(1, weight=1)
+        frame.columnconfigure(0, weight=1)
+
+        summary = ttk.Label(
+            frame,
+            text=f"OK {ok}    WARN {warn}    FAIL {fail}\n报告文件：{result.get('report', '')}",
+            anchor="w",
+            justify="left",
+        )
+        summary.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+
+        text = tk.Text(frame, wrap="word")
+        text.grid(row=1, column=0, sticky="nsew")
+        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=text.yview)
+        scrollbar.grid(row=1, column=1, sticky="ns")
+        text.configure(yscrollcommand=scrollbar.set)
+        text.tag_configure("OK", foreground="#167a2f")
+        text.tag_configure("WARN", foreground="#9a6700")
+        text.tag_configure("FAIL", foreground="#b00020")
+
+        for row in result.get("rows", []):
+            status = row.get("status", "")
+            line = f"[{status}] {row.get('item', '')}：{row.get('detail', '')}\n"
+            text.insert("end", line, status if status in ("OK", "WARN", "FAIL") else "")
+        text.configure(state="disabled")
+
+        ttk.Button(frame, text="关闭", command=dialog.destroy).grid(row=2, column=0, columnspan=2, sticky="e", pady=(10, 0))
 
     def handle_error(self, error) -> None:
         self.set_busy(False)

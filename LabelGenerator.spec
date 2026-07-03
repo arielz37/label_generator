@@ -5,6 +5,7 @@ block_cipher = None
 hiddenimports = [
     "pythoncom",
     "pywintypes",
+    "win32api",
     "win32print",
     "win32com",
     "win32com.client",

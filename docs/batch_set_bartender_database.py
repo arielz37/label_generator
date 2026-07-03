@@ -11,6 +11,39 @@ from xml.sax.saxutils import escape
 
 from app_paths import LOG_DIR, PROJECT_ROOT, RUNTIME_DIR, TEMPLATE_ROOT
 
+try:
+    from erp_runtime_csv import LABEL_CSV_FIELDS as CSV_FIELDS
+except Exception:
+    CSV_FIELDS = [
+        "MO_NO",
+        "SO_NO",
+        "CUS_OS_NO",
+        "ORDER_NO",
+        "CUS_NO",
+        "SUP_PRD_NO",
+        "MRP_NO",
+        "MFG_QTY",
+        "MFG_DATE",
+        "MFG_DATE_YYMMDD",
+        "MFG_DATE_YYYYMMDD",
+        "MFG_DATE_DD_MM_YYYY_DOT",
+        "MFG_DATE_YYYY_MM_DD_DOT",
+        "MFG_DATE_YY_MM_DD_DOT",
+        "EXP_DATE",
+        "EXP_DATE_YYMMDD",
+        "EXP_DATE_YYYYMMDD",
+        "EXP_DATE_DD_MM_YYYY_DOT",
+        "EXP_DATE_YYYY_MM_DD_DOT",
+        "EXP_DATE_YY_MM_DD_DOT",
+        "LOT_NO",
+        "HAS_INNER_LABEL",
+        "QTY",
+        "LABEL_COUNT",
+        "LABEL_INDEX",
+        "PACKAGE_PRD_NO",
+        "PACKAGE_NAME",
+    ]
+
 TOOL_DIR = Path(__file__).resolve().parent
 LOG_RETENTION_DAYS = 7
 DEFAULT_TEMPLATE_ROOT = TEMPLATE_ROOT
@@ -18,31 +51,6 @@ DEFAULT_RUNTIME_CSV = RUNTIME_DIR / "current_label.csv"
 DEFAULT_REPORT = LOG_DIR / "batch_set_bartender_database_report.csv"
 SCRIPT_DIR = LOG_DIR / "batch_set_bartender_database_xmlscripts"
 XMLSCRIPT_TIMEOUT_SECONDS = 60
-
-CSV_FIELDS = [
-    "MO_NO",
-    "SO_NO",
-    "CUS_OS_NO",
-    "ORDER_NO",
-    "CUS_NO",
-    "SUP_PRD_NO",
-    "MRP_NO",
-    "MFG_QTY",
-    "MFG_DATE",
-    "MFG_DATE_YYMMDD",
-    "MFG_DATE_YYYYMMDD",
-    "EXP_DATE",
-    "EXP_DATE_YYMMDD",
-    "EXP_DATE_YYYYMMDD",
-    "LOT_NO",
-    "HAS_INNER_LABEL",
-    "QTY",
-    "LABEL_COUNT",
-    "LABEL_INDEX",
-    "PACKAGE_PRD_NO",
-    "PACKAGE_NAME",
-]
-
 
 def cleanup_old_logs() -> None:
     if not LOG_DIR.exists():
