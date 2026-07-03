@@ -75,7 +75,6 @@ HEADERS = (
     "匹配编号",
     "标签类型",
     "客户目录",
-    "模板文件名",
     "模板相对路径",
     "问题",
 )
@@ -101,7 +100,6 @@ class MappingRow:
             self.manual_match_code,
             self.manual_label_type,
             self.customer_dir,
-            self.file_name,
             self.relative_path,
             self.display_issue(),
         ]
@@ -381,7 +379,7 @@ def xml_cell(row_idx: int, col_idx: int, value: str, style: int = 0) -> str:
 
 def write_minimal_xlsx(rows: List[MappingRow], output_path: Path) -> None:
     data = [list(HEADERS), *[row.as_list() for row in rows]]
-    widths = [16, 22, 14, 18, 46, 70, 80]
+    widths = [16, 22, 14, 18, 70, 80]
     row_count = len(data)
     col_count = len(HEADERS)
     last_cell = f"{column_letter(col_count)}{row_count}"
@@ -393,7 +391,7 @@ def write_minimal_xlsx(rows: List[MappingRow], output_path: Path) -> None:
             if row_idx > 1 and value == "":
                 continue
             style = 1 if row_idx == 1 else 0
-            if row_idx > 1 and col_idx == 7:
+            if row_idx > 1 and col_idx == len(HEADERS):
                 if "状态：自动确认" in value:
                     style = 2
                 elif "状态：需要确认" in value:
@@ -588,6 +586,27 @@ def replace_xlsx_file(temp_path: Path, output_path: Path) -> None:
         ) from exc
 
 
+def read_sheet_header_columns(sheet_xml: str, shared_strings: List[str]) -> Dict[str, str]:
+    header_match = re.search(r'<row\b[^>]*\br="1"[^>]*>.*?</row>', sheet_xml, flags=re.S)
+    if not header_match:
+        return {}
+
+    columns: Dict[str, str] = {}
+    for cell in re.finditer(r'<c\b[^>]*\br="([A-Z]+)1"[^>]*(?:>.*?</c>|/>)', header_match.group(0), flags=re.S):
+        text = get_cell_text(cell.group(0), shared_strings).strip()
+        if text:
+            columns[text] = cell.group(1)
+    return columns
+
+
+def find_header_column(header_columns: Dict[str, str], names: Iterable[str]) -> str:
+    for name in names:
+        column = header_columns.get(name)
+        if column:
+            return column
+    return ""
+
+
 def backfill_existing_generated_fields(output_path: Path, scanned_rows: List[MappingRow]) -> int:
     scanned_by_path = {
         normalize_relative_path(row.relative_path): row
@@ -602,6 +621,15 @@ def backfill_existing_generated_fields(output_path: Path, scanned_rows: List[Map
     with zipfile.ZipFile(output_path, "r") as source:
         shared_strings = read_shared_strings(source)
         sheet_xml = source.read("xl/worksheets/sheet1.xml").decode("utf-8")
+        header_columns = read_sheet_header_columns(sheet_xml, shared_strings)
+        relative_path_column = find_header_column(
+            header_columns,
+            ("模板相对路径", "模版相对路径", "模板路径", "模版路径", "相对路径"),
+        )
+        match_code_column = find_header_column(header_columns, ("匹配编号",))
+        label_type_column = find_header_column(header_columns, ("标签类型",))
+        if not relative_path_column or not match_code_column or not label_type_column:
+            return 0
 
         def update_row(match) -> str:
             nonlocal updated_count
@@ -610,20 +638,20 @@ def backfill_existing_generated_fields(output_path: Path, scanned_rows: List[Map
             if row_idx == 1:
                 return row_xml
 
-            relative_path = get_cell_text(find_cell_xml(row_xml, row_idx, "F"), shared_strings)
+            relative_path = get_cell_text(find_cell_xml(row_xml, row_idx, relative_path_column), shared_strings)
             scanned = scanned_by_path.get(normalize_relative_path(relative_path))
             if scanned is None:
                 return row_xml
 
-            match_code = get_cell_text(find_cell_xml(row_xml, row_idx, "B"), shared_strings).strip()
-            label_type = get_cell_text(find_cell_xml(row_xml, row_idx, "C"), shared_strings).strip()
+            match_code = get_cell_text(find_cell_xml(row_xml, row_idx, match_code_column), shared_strings).strip()
+            label_type = get_cell_text(find_cell_xml(row_xml, row_idx, label_type_column), shared_strings).strip()
             changed = False
 
             if not match_code and scanned.match_code:
-                row_xml = replace_or_insert_cell(row_xml, row_idx, 2, scanned.match_code)
+                row_xml = replace_or_insert_cell(row_xml, row_idx, column_index(match_code_column), scanned.match_code)
                 changed = True
             if not label_type and scanned.label_type and scanned.label_type != "未识别":
-                row_xml = replace_or_insert_cell(row_xml, row_idx, 3, scanned.label_type)
+                row_xml = replace_or_insert_cell(row_xml, row_idx, column_index(label_type_column), scanned.label_type)
                 changed = True
 
             if changed:
