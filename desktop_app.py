@@ -826,8 +826,10 @@ class LabelGeneratorApp(tk.Tk):
         if not busy:
             self.preview_button.configure(text="生成预览")
         self.preview_button.configure(state=state)
+        inner_result = (self.result or {}).get("inner") or {}
+        inner_can_print = bool(inner_result.get("can_print"))
         self.print_outer_button.configure(state=state if self.result else "disabled")
-        self.print_inner_button.configure(state=state if self.result and self.result.get("inner") else "disabled")
+        self.print_inner_button.configure(state=state if inner_can_print else "disabled")
         self.print_all_button.configure(state=state if self.result else "disabled")
         if self.tools_menu is not None:
             if self.template_db_menu_index is not None:
@@ -1087,7 +1089,8 @@ class LabelGeneratorApp(tk.Tk):
     def print_all(self) -> None:
         if not self.result:
             return
-        self.start_print(["outer", "inner"] if self.result.get("inner") else ["outer"])
+        inner = self.result.get("inner") or {}
+        self.start_print(["outer", "inner"] if inner.get("can_print") else ["outer"])
 
     def start_template_mapping_update(self) -> None:
         mapping_file = TEMPLATE_MAPPING_FILE
@@ -1318,11 +1321,6 @@ class LabelGeneratorApp(tk.Tk):
             f"外标模板：{outer.get('template', '-')}",
             f"内标模板：{inner.get('template', '-') if inner else '-'}",
         ]
-        notices = result.get("notices") or []
-        if notices:
-            lines.extend(["", "提示："])
-            lines.extend(f"- {notice}" for notice in notices)
-
         self.info_text.configure(state="normal")
         self.info_text.delete("1.0", "end")
         saved_sections = []
@@ -1330,6 +1328,11 @@ class LabelGeneratorApp(tk.Tk):
             warning_text = "零数提醒：\n" + "\n".join(f"- {notice}" for notice in remainder_notices) + "\n\n"
             self.info_text.insert("end", warning_text, "warning")
             saved_sections.append(warning_text.rstrip())
+        notices = result.get("notices") or []
+        if notices:
+            notice_text = "提示：\n" + "\n".join(f"- {notice}" for notice in notices) + "\n\n"
+            self.info_text.insert("end", notice_text, "warning")
+            saved_sections.append(notice_text.rstrip())
         info_text = "\n".join(lines)
         self.info_text.insert("end", info_text)
         self.info_text.configure(state="disabled")
@@ -1396,7 +1399,8 @@ class LabelGeneratorApp(tk.Tk):
 
     def update_action_state(self) -> None:
         has_result = bool(self.result)
-        has_inner = bool(self.result and self.result.get("inner"))
+        inner = self.result.get("inner") if self.result else None
+        has_inner = bool(inner and inner.get("can_print"))
         self.print_outer_button.configure(state="normal" if has_result else "disabled")
         self.print_inner_button.configure(state="normal" if has_inner else "disabled")
         self.print_all_button.configure(state="normal" if has_result else "disabled")

@@ -286,8 +286,6 @@ def find_template_for_mo(
         override = normalize_template_override(inner_template_override)
         if override:
             return override
-        if not runtime_row.get("INNER_QTY"):
-            raise LabelServiceError("当前 MO 未从 ERP/BOM 检测到内标包装数量。")
         try:
             return find_template_path_by_label_types(csv_path, ("内标", "内外标"))
         except TemplateLookupError as error:
@@ -318,6 +316,13 @@ def build_missing_inner_notice(runtime_row: Dict[str, str]) -> str:
     return (
         f"未找到内标/内外标模板标配置，当前按无内标处理。"
         f"{TEMPLATE_MISSING_HINT}"
+    )
+
+
+def build_missing_inner_qty_notice(runtime_row: Dict[str, str]) -> str:
+    return (
+        "检测不到内标包装数量：ERP/BOM 未匹配到内标包装用量基数。"
+        "内标模板已显示，但暂不能生成内标预览或打印内标。"
     )
 
 
@@ -432,15 +437,20 @@ def generate_label_preview(
 
     has_inner_package = bool(runtime_row.get("INNER_QTY"))
     inner_missing_notice = ""
-    if has_inner_package:
-        inner_template = normalize_template_override(inner_template_override)
-        if not inner_template:
-            try:
-                inner_template = find_template_path_by_label_types(csv_path, ("内标", "内外标"))
-            except TemplateLookupError:
-                inner_template = ""
+    inner_qty_missing_notice = ""
+    inner_template = normalize_template_override(inner_template_override)
+    if not inner_template:
+        try:
+            inner_template = find_template_path_by_label_types(csv_path, ("内标", "内外标"))
+        except TemplateLookupError:
+            inner_template = ""
+            if has_inner_package:
                 inner_missing_notice = build_missing_inner_notice(runtime_row)
-    else:
+    if inner_template and not has_inner_package:
+        inner_qty_missing_notice = build_missing_inner_qty_notice(runtime_row)
+    if not has_inner_package:
+        runtime_row["INNER_LABEL_COUNT"] = "0"
+    if not inner_template:
         inner_template = ""
     has_inner = bool(inner_template) and has_inner_package
     set_inner_label_enabled(runtime_rows, has_inner)
@@ -455,6 +465,8 @@ def generate_label_preview(
     result["outer_package_override"] = outer_package_name
     if inner_missing_notice:
         result["notices"].append(inner_missing_notice)  # type: ignore[union-attr]
+    if inner_qty_missing_notice:
+        result["notices"].append(inner_qty_missing_notice)  # type: ignore[union-attr]
 
     preview_root = PREVIEW_OUTPUT_DIR / safe_segment(mo_no)
     clear_directory(preview_root)
@@ -483,9 +495,9 @@ def generate_label_preview(
         "preview_images": preview_urls_from_paths(outer_paths),
     }
 
-    if has_inner:
+    if inner_template:
         inner_paths: List[Path] = []
-        if has_label_rows(runtime_rows, "inner"):
+        if has_inner and has_label_rows(runtime_rows, "inner"):
             csv_path = write_label_csv(runtime_rows, "inner")
             inner_paths = generate_preview_image(
                 template_path=inner_template,
@@ -506,6 +518,7 @@ def generate_label_preview(
             "package_prd_no": runtime_row.get("INNER_PACKAGE_PRD_NO", ""),
             "package_name": runtime_row.get("INNER_PACKAGE_NAME", ""),
             "preview_images": preview_urls_from_paths(inner_paths),
+            "can_print": has_inner,
         }
     else:
         result["inner"] = None
