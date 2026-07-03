@@ -14,6 +14,8 @@ from config import ERP_DATABASE, ERP_DRIVER, ERP_PASSWORD, ERP_SERVER, ERP_USER,
 
 
 DEFAULT_SHELF_LIFE_MONTHS = 12
+CHINESE_CHAR_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
+EDGE_SEPARATOR_CHARS = " \t\r\n-_/,，;；:：|()（）[]【】{}"
 
 RAW_RUNTIME_FIELDS = [
     "MO_NO",
@@ -174,6 +176,18 @@ def format_csv_value(value: Any) -> str:
     if isinstance(value, Decimal):
         return format(value, "f").rstrip("0").rstrip(".")
     return str(value).strip()
+
+
+def contains_chinese(value: Any) -> bool:
+    return bool(CHINESE_CHAR_RE.search(format_csv_value(value)))
+
+
+def format_non_chinese_csv_value(value: Any) -> str:
+    text = format_csv_value(value)
+    if not text:
+        return ""
+    text = CHINESE_CHAR_RE.sub("", text).strip(EDGE_SEPARATOR_CHARS)
+    return text
 
 
 def parse_decimal(value: Any) -> Optional[Decimal]:
@@ -555,6 +569,14 @@ def first_value(row: Dict[str, str], keys: Tuple[str, ...]) -> str:
     return ""
 
 
+def first_non_chinese_value(row: Dict[str, str], keys: Tuple[str, ...]) -> str:
+    for key in keys:
+        value = format_non_chinese_csv_value(row.get(key, ""))
+        if value:
+            return value
+    return ""
+
+
 def build_runtime_csv_row(
     normalized_row: Dict[str, str],
     runtime_options: Optional[Dict[str, Any]] = None,
@@ -594,13 +616,13 @@ def build_runtime_csv_row(
     outer_remainder_qty = calculate_remainder_qty(qty, outer_qty)
 
     return {
-        "MO_NO": first_value(normalized_row, ("MO_NO",)),
-        "SO_NO": first_value(normalized_row, ("SO_NO",)),
-        "CUS_OS_NO": first_value(normalized_row, ("CUS_OS_NO",)),
+        "MO_NO": first_non_chinese_value(normalized_row, ("MO_NO",)),
+        "SO_NO": first_non_chinese_value(normalized_row, ("SO_NO",)),
+        "CUS_OS_NO": first_non_chinese_value(normalized_row, ("CUS_OS_NO",)),
         "ORDER_NO": first_value(normalized_row, ("CUS_OS_NO",)),
-        "CUS_NO": first_value(normalized_row, ("CUSTOMER_CODE",)),
-        "SUP_PRD_NO": first_value(normalized_row, ("SUP_PRD_NO", "CUSTOMER_PART_NO")),
-        "MRP_NO": product_code,
+        "CUS_NO": first_non_chinese_value(normalized_row, ("CUSTOMER_CODE",)),
+        "SUP_PRD_NO": first_non_chinese_value(normalized_row, ("SUP_PRD_NO", "CUSTOMER_PART_NO")),
+        "MRP_NO": format_non_chinese_csv_value(product_code),
         "MFG_QTY": qty,
         "MFG_DATE": mfg_date,
         "MFG_DATE_YYMMDD": format_date_compact(mfg_date, "%y%m%d"),

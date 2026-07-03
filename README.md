@@ -111,8 +111,8 @@ PACKAGE_NAME
 `MRP_NO` is the product number.
 `MFG_QTY` is the manufacturing order quantity.
 `SO_NO` is the ERP sales order number, usually beginning with `SO`.
-`CUS_OS_NO` is the ERP customer order number source field.
-`ORDER_NO` is the customer purchase/order number; currently it uses `CUS_OS_NO`.
+`CUS_OS_NO` is the cleaned customer purchase/order number with Chinese text removed.
+`ORDER_NO` is the original ERP customer order field and keeps the full source text.
 `LOT_NO` is generated as `MFG_DATE_YYMMDD-MO_NO-SZBD`.
 `QTY` is the quantity shown on the current label type.
 `LABEL_COUNT` is the total label count for that label type, including a final remainder label when one is generated.
