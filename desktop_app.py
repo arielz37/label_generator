@@ -435,10 +435,9 @@ class LabelGeneratorApp(tk.Tk):
         mo_no = self.mo_var.get().strip()
         if not mo_no:
             return False
+        self.populate_package_options(mo_no)
         if self.template_lookup_mo == mo_no and (self.entry_value(self.outer_template_var) or self.entry_value(self.inner_template_var)):
             return True
-
-        self.populate_package_options(mo_no)
 
         try:
             outer_template = find_template_for_mo(mo_no, "outer")
@@ -889,13 +888,15 @@ class LabelGeneratorApp(tk.Tk):
         self.preview_button.configure(text="预览生成中...")
         self.status_var.set("正在生成预览...")
         outer_template, inner_template = self.get_template_overrides()
-        inner_package_name, outer_package_name = self.get_package_overrides()
         if not outer_template and not inner_template:
             if not self.populate_template_fields(show_errors=True):
                 self.set_busy(False)
                 self.update_action_state()
                 return
             outer_template, inner_template = self.get_template_overrides()
+        else:
+            self.populate_package_options(mo_no)
+        inner_package_name, outer_package_name = self.get_package_overrides()
         self.log(f"开始生成预览：{mo_no}")
         if printer_name:
             self.log(f"预览打印机：{printer_name}")
