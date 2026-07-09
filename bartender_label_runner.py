@@ -79,7 +79,7 @@ def build_print_xml(job: LabelJob) -> str:
 <XMLScript Version="2.0">
   <Command Name="PrintLabels">
     <Print>
-      <Format CloseAtEndOfJob="true">{escape(str(job.template_path))}</Format>
+      <Format CloseAtEndOfJob="true" SaveAtEndOfJob="true">{escape(str(job.template_path))}</Format>
       <PrintSetup>
         <NumberSerializedLabels>1</NumberSerializedLabels>
         <IdenticalCopiesOfLabel>{job.copies}</IdenticalCopiesOfLabel>{printer_xml}
@@ -142,6 +142,7 @@ def write_label_job_manifest(job: LabelJob, command: List[str], script_path: Uni
         "printer_name": job.printer_name,
         "print_now": job.print_now,
         "copies": job.copies,
+        "save_template_after_print": bool(job.print_now),
         "xmlscript_path": str(script_path) if script_path else "",
         "command": command,
     }

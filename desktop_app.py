@@ -1188,6 +1188,7 @@ class LabelGeneratorApp(tk.Tk):
         try:
             result = run_batch_database_setup(
                 template_root=template_root,
+                report_path=LOG_DIR / f"batch_set_bartender_database_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 save=True,
                 create_csv=True,
                 printer_name=printer_name,

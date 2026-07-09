@@ -48,6 +48,9 @@ RAW_RUNTIME_FIELDS = [
     "INNER_PACKAGE_NAME",
     "OUTER_PACKAGE_PRD_NO",
     "OUTER_PACKAGE_NAME",
+    "MO_NO_DIGITS",
+    "MFG_DATE_MM_DD_YYYY_SLASH",
+    "EXP_DATE_MM_DD_YYYY_SLASH",
 ]
 
 LABEL_CSV_FIELDS = [
@@ -78,6 +81,9 @@ LABEL_CSV_FIELDS = [
     "LABEL_INDEX",
     "PACKAGE_PRD_NO",
     "PACKAGE_NAME",
+    "MO_NO_DIGITS",
+    "MFG_DATE_MM_DD_YYYY_SLASH",
+    "EXP_DATE_MM_DD_YYYY_SLASH",
 ]
 
 # Default file shape for runtime_data/current_label.csv. BarTender templates
@@ -516,6 +522,13 @@ def build_lot_no(mfg_date: str, mo_no: str, suffix: str = "SZBD") -> str:
     return f"{mfg_compact}-{mo_no}-{suffix}"
 
 
+def build_mo_no_digits(mo_no: str) -> str:
+    text = format_non_chinese_csv_value(mo_no)
+    if text.upper().startswith("MO"):
+        return text[2:]
+    return text
+
+
 def calculate_exp_date_by_package(mfg_date: str, package_name: str) -> str:
     return calculate_exp_date_by_months(mfg_date, shelf_life_months_from_package_name(package_name))
 
@@ -615,8 +628,11 @@ def build_runtime_csv_row(
     inner_remainder_qty = calculate_remainder_qty(qty, inner_qty) if has_inner_label == "Y" and inner_qty else ""
     outer_remainder_qty = calculate_remainder_qty(qty, outer_qty)
 
+    mo_no = first_non_chinese_value(normalized_row, ("MO_NO",))
+
     return {
-        "MO_NO": first_non_chinese_value(normalized_row, ("MO_NO",)),
+        "MO_NO": mo_no,
+        "MO_NO_DIGITS": build_mo_no_digits(mo_no),
         "SO_NO": first_non_chinese_value(normalized_row, ("SO_NO",)),
         "CUS_OS_NO": first_non_chinese_value(normalized_row, ("CUS_OS_NO",)),
         "ORDER_NO": first_value(normalized_row, ("CUS_OS_NO",)),
@@ -627,12 +643,14 @@ def build_runtime_csv_row(
         "MFG_DATE": mfg_date,
         "MFG_DATE_YYMMDD": format_date_compact(mfg_date, "%y%m%d"),
         "MFG_DATE_YYYYMMDD": format_date_compact(mfg_date, "%Y%m%d"),
+        "MFG_DATE_MM_DD_YYYY_SLASH": format_date_compact(mfg_date, "%m/%d/%Y"),
         "MFG_DATE_DD_MM_YYYY_DOT": format_date_compact(mfg_date, "%d.%m.%Y"),
         "MFG_DATE_YYYY_MM_DD_DOT": format_date_compact(mfg_date, "%Y.%m.%d"),
         "MFG_DATE_YY_MM_DD_DOT": format_date_compact(mfg_date, "%y.%m.%d"),
         "EXP_DATE": exp_date,
         "EXP_DATE_YYMMDD": format_date_compact(exp_date, "%y%m%d"),
         "EXP_DATE_YYYYMMDD": format_date_compact(exp_date, "%Y%m%d"),
+        "EXP_DATE_MM_DD_YYYY_SLASH": format_date_compact(exp_date, "%m/%d/%Y"),
         "EXP_DATE_DD_MM_YYYY_DOT": format_date_compact(exp_date, "%d.%m.%Y"),
         "EXP_DATE_YYYY_MM_DD_DOT": format_date_compact(exp_date, "%Y.%m.%d"),
         "EXP_DATE_YY_MM_DD_DOT": format_date_compact(exp_date, "%y.%m.%d"),
@@ -664,6 +682,7 @@ def build_label_csv_row(
 ) -> Dict[str, str]:
     return {
         "MO_NO": runtime_row.get("MO_NO", ""),
+        "MO_NO_DIGITS": runtime_row.get("MO_NO_DIGITS", ""),
         "SO_NO": runtime_row.get("SO_NO", ""),
         "CUS_OS_NO": runtime_row.get("CUS_OS_NO", ""),
         "ORDER_NO": runtime_row.get("ORDER_NO", ""),
@@ -674,12 +693,14 @@ def build_label_csv_row(
         "MFG_DATE": runtime_row.get("MFG_DATE", ""),
         "MFG_DATE_YYMMDD": runtime_row.get("MFG_DATE_YYMMDD", ""),
         "MFG_DATE_YYYYMMDD": runtime_row.get("MFG_DATE_YYYYMMDD", ""),
+        "MFG_DATE_MM_DD_YYYY_SLASH": runtime_row.get("MFG_DATE_MM_DD_YYYY_SLASH", ""),
         "MFG_DATE_DD_MM_YYYY_DOT": runtime_row.get("MFG_DATE_DD_MM_YYYY_DOT", ""),
         "MFG_DATE_YYYY_MM_DD_DOT": runtime_row.get("MFG_DATE_YYYY_MM_DD_DOT", ""),
         "MFG_DATE_YY_MM_DD_DOT": runtime_row.get("MFG_DATE_YY_MM_DD_DOT", ""),
         "EXP_DATE": runtime_row.get("EXP_DATE", ""),
         "EXP_DATE_YYMMDD": runtime_row.get("EXP_DATE_YYMMDD", ""),
         "EXP_DATE_YYYYMMDD": runtime_row.get("EXP_DATE_YYYYMMDD", ""),
+        "EXP_DATE_MM_DD_YYYY_SLASH": runtime_row.get("EXP_DATE_MM_DD_YYYY_SLASH", ""),
         "EXP_DATE_DD_MM_YYYY_DOT": runtime_row.get("EXP_DATE_DD_MM_YYYY_DOT", ""),
         "EXP_DATE_YYYY_MM_DD_DOT": runtime_row.get("EXP_DATE_YYYY_MM_DD_DOT", ""),
         "EXP_DATE_YY_MM_DD_DOT": runtime_row.get("EXP_DATE_YY_MM_DD_DOT", ""),

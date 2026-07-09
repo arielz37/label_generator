@@ -61,6 +61,9 @@ LABEL_CSV_FIELDS = [
     "LABEL_INDEX",
     "PACKAGE_PRD_NO",
     "PACKAGE_NAME",
+    "MO_NO_DIGITS",
+    "MFG_DATE_MM_DD_YYYY_SLASH",
+    "EXP_DATE_MM_DD_YYYY_SLASH",
 ]
 TEMPLATE_PATH_COLUMNS = ("模板相对路径", "模版相对路径", "模板路径", "模版路径", "相对路径")
 INNER_LABEL_TRUE_VALUES = {"y", "yes", "1", "true", "是", "有"}
@@ -112,6 +115,7 @@ def build_label_csv_row(
 ) -> Dict[str, str]:
     return {
         "MO_NO": runtime_row.get("MO_NO", ""),
+        "MO_NO_DIGITS": runtime_row.get("MO_NO_DIGITS", ""),
         "SO_NO": runtime_row.get("SO_NO", ""),
         "CUS_OS_NO": runtime_row.get("CUS_OS_NO", ""),
         "ORDER_NO": runtime_row.get("ORDER_NO", ""),
@@ -122,12 +126,14 @@ def build_label_csv_row(
         "MFG_DATE": runtime_row.get("MFG_DATE", ""),
         "MFG_DATE_YYMMDD": runtime_row.get("MFG_DATE_YYMMDD", ""),
         "MFG_DATE_YYYYMMDD": runtime_row.get("MFG_DATE_YYYYMMDD", ""),
+        "MFG_DATE_MM_DD_YYYY_SLASH": runtime_row.get("MFG_DATE_MM_DD_YYYY_SLASH", ""),
         "MFG_DATE_DD_MM_YYYY_DOT": runtime_row.get("MFG_DATE_DD_MM_YYYY_DOT", ""),
         "MFG_DATE_YYYY_MM_DD_DOT": runtime_row.get("MFG_DATE_YYYY_MM_DD_DOT", ""),
         "MFG_DATE_YY_MM_DD_DOT": runtime_row.get("MFG_DATE_YY_MM_DD_DOT", ""),
         "EXP_DATE": runtime_row.get("EXP_DATE", ""),
         "EXP_DATE_YYMMDD": runtime_row.get("EXP_DATE_YYMMDD", ""),
         "EXP_DATE_YYYYMMDD": runtime_row.get("EXP_DATE_YYYYMMDD", ""),
+        "EXP_DATE_MM_DD_YYYY_SLASH": runtime_row.get("EXP_DATE_MM_DD_YYYY_SLASH", ""),
         "EXP_DATE_DD_MM_YYYY_DOT": runtime_row.get("EXP_DATE_DD_MM_YYYY_DOT", ""),
         "EXP_DATE_YYYY_MM_DD_DOT": runtime_row.get("EXP_DATE_YYYY_MM_DD_DOT", ""),
         "EXP_DATE_YY_MM_DD_DOT": runtime_row.get("EXP_DATE_YY_MM_DD_DOT", ""),

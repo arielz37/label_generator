@@ -42,6 +42,9 @@ except Exception:
         "LABEL_INDEX",
         "PACKAGE_PRD_NO",
         "PACKAGE_NAME",
+        "MO_NO_DIGITS",
+        "MFG_DATE_MM_DD_YYYY_SLASH",
+        "EXP_DATE_MM_DD_YYYY_SLASH",
     ]
 
 TOOL_DIR = Path(__file__).resolve().parent
@@ -438,7 +441,7 @@ def build_add_database_xml(
 
 def add_database_with_xmlscript(template_path: Path, csv_path: Path, printer_name: str = "") -> Tuple[bool, str]:
     SCRIPT_DIR.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     script_path = SCRIPT_DIR / f"{timestamp}_{template_path.stem[:40]}_add_database.xml"
     script_path.write_text(build_add_database_xml(template_path, csv_path, printer_name=printer_name), encoding="utf-8")
 
@@ -511,19 +514,22 @@ def process_template(
     xmlscript_only: bool = False,
 ) -> dict:
     if xmlscript_only:
-        if not save:
-            return result_row(
-                template_path,
-                template_root,
-                "dry-run成功",
-                "XMLScript-only 模式；保存模式会直接写入 CSV 数据库连接。",
-                "",
-            )
-        backup_path = str(backup_template(template_path, backup_root, template_root)) if backup_root is not None else ""
-        ok, message = add_database_with_xmlscript(template_path, csv_path, printer_name=printer_name)
-        if not ok:
-            return result_row(template_path, template_root, "失败", message, backup_path)
-        return result_row(template_path, template_root, "已保存", f"{message}；未使用 COM 二次验证", backup_path)
+        try:
+            if not save:
+                return result_row(
+                    template_path,
+                    template_root,
+                    "dry-run成功",
+                    "XMLScript-only 模式；保存模式会直接写入 CSV 数据库连接。",
+                    "",
+                )
+            backup_path = str(backup_template(template_path, backup_root, template_root)) if backup_root is not None else ""
+            ok, message = add_database_with_xmlscript(template_path, csv_path, printer_name=printer_name)
+            if not ok:
+                return result_row(template_path, template_root, "失败", message, backup_path)
+            return result_row(template_path, template_root, "已保存", f"{message}；未使用 COM 二次验证", backup_path)
+        except Exception as error:
+            return result_row(template_path, template_root, "失败", str(error), "")
 
     initial_count_error = ""
     try:
@@ -666,8 +672,8 @@ def run_batch_database_setup(
         for index, template_path in enumerate(templates, start=1):
             if progress_callback:
                 progress_callback(index, len(templates), template_path)
-            rows.append(
-                process_template(
+            try:
+                row = process_template(
                     app=app,
                     template_path=template_path,
                     template_root=template_root,
@@ -677,7 +683,10 @@ def run_batch_database_setup(
                     printer_name=printer_name,
                     xmlscript_only=xmlscript_only,
                 )
-            )
+            except Exception as error:
+                row = result_row(template_path, template_root, "失败", str(error), "")
+            rows.append(row)
+            write_report(rows, report_path)
     finally:
         if app is not None:
             try:
