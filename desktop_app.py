@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import threading
 from datetime import datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 try:
@@ -159,6 +160,7 @@ class LabelGeneratorApp(tk.Tk):
         self.entry_placeholders = {}
         self.placeholder_texts = set()
         self.warned_virtual_printers = set()
+        self.is_busy = False
 
         self.create_menu()
         self.create_widgets()
@@ -306,6 +308,18 @@ class LabelGeneratorApp(tk.Tk):
             state="readonly",
         )
         self.inner_package_combo.grid(row=2, column=9, columnspan=3, sticky="ew", padx=(0, 8), pady=(8, 0))
+
+        self.outer_package_qty_var = tk.StringVar(value="")
+        ttk.Label(top, text="外标手工基数").grid(row=3, column=4, sticky="e", padx=(0, 4), pady=(8, 0))
+        self.outer_package_qty_entry = ttk.Entry(top, textvariable=self.outer_package_qty_var, width=10)
+        self.outer_package_qty_entry.grid(row=3, column=5, sticky="w", padx=(0, 8), pady=(8, 0))
+
+        self.inner_package_qty_var = tk.StringVar(value="")
+        ttk.Label(top, text="内标手工基数").grid(row=3, column=9, sticky="e", padx=(0, 4), pady=(8, 0))
+        self.inner_package_qty_entry = ttk.Entry(top, textvariable=self.inner_package_qty_var, width=10)
+        self.inner_package_qty_entry.grid(row=3, column=10, sticky="w", padx=(0, 8), pady=(8, 0))
+        self.outer_package_qty_var.trace_add("write", self.on_package_qty_changed)
+        self.inner_package_qty_var.trace_add("write", self.on_package_qty_changed)
 
         self.outer_print_count_var = tk.StringVar(value="")
         self.outer_print_count_entry = ttk.Entry(top, textvariable=self.outer_print_count_var, width=6)
@@ -762,6 +776,41 @@ class LabelGeneratorApp(tk.Tk):
             inner_package = ""
         return inner_package, outer_package
 
+    def get_package_qty_overrides(self) -> tuple[str, str]:
+        def validate(label: str, value: str) -> str:
+            text = self.entry_value(value)
+            if not text:
+                return ""
+            try:
+                number = Decimal(text)
+            except InvalidOperation as error:
+                raise ValueError(f"{label}手工基数必须是大于 0 的数字") from error
+            if not number.is_finite() or number <= 0:
+                raise ValueError(f"{label}手工基数必须是大于 0 的数字")
+            return text
+
+        return (
+            validate("内标", self.inner_package_qty_var),
+            validate("外标", self.outer_package_qty_var),
+        )
+
+    def on_package_qty_changed(self, *_args) -> None:
+        self.update_package_input_states(reset_selection=True)
+
+    def update_package_input_states(self, reset_selection: bool = False) -> None:
+        outer_manual = bool(self.entry_value(self.outer_package_qty_var))
+        inner_manual = bool(self.entry_value(self.inner_package_qty_var))
+        if reset_selection and outer_manual:
+            self.outer_package_var.set(PACKAGE_AUTO_TEXT)
+        if reset_selection and inner_manual:
+            self.inner_package_var.set(PACKAGE_AUTO_TEXT)
+        self.outer_package_combo.configure(
+            state="disabled" if self.is_busy or outer_manual else "readonly"
+        )
+        self.inner_package_combo.configure(
+            state="disabled" if self.is_busy or inner_manual else "readonly"
+        )
+
     def get_selected_printer(self) -> str:
         printer_name = self.printer_var.get().strip()
         if printer_name == PRINTER_DEFAULT_TEXT:
@@ -826,6 +875,7 @@ class LabelGeneratorApp(tk.Tk):
         return SHELF_LIFE_MONTHS[selected]
 
     def set_busy(self, busy: bool) -> None:
+        self.is_busy = busy
         state = "disabled" if busy else "normal"
         if not busy:
             self.preview_button.configure(text="生成预览")
@@ -845,8 +895,9 @@ class LabelGeneratorApp(tk.Tk):
             if self.settings_menu_index is not None:
                 self.tools_menu.entryconfig(self.settings_menu_index, state=state)
         self.printer_combo.configure(state="disabled" if busy else "normal")
-        self.outer_package_combo.configure(state="disabled" if busy else "readonly")
-        self.inner_package_combo.configure(state="disabled" if busy else "readonly")
+        self.update_package_input_states()
+        self.outer_package_qty_entry.configure(state="disabled" if busy else "normal")
+        self.inner_package_qty_entry.configure(state="disabled" if busy else "normal")
         template_state = "disabled" if busy else "normal"
         self.outer_template_entry.configure(state=template_state)
         self.inner_template_entry.configure(state=template_state)
@@ -897,6 +948,13 @@ class LabelGeneratorApp(tk.Tk):
         else:
             self.populate_package_options(mo_no)
         inner_package_name, outer_package_name = self.get_package_overrides()
+        try:
+            inner_package_qty, outer_package_qty = self.get_package_qty_overrides()
+        except ValueError as error:
+            messagebox.showwarning(APP_TITLE, str(error))
+            self.set_busy(False)
+            self.update_action_state()
+            return
         self.log(f"开始生成预览：{mo_no}")
         if printer_name:
             self.log(f"预览打印机：{printer_name}")
@@ -910,9 +968,13 @@ class LabelGeneratorApp(tk.Tk):
             self.log(f"UI指定外标包装：{outer_package_name}")
         if inner_package_name:
             self.log(f"UI指定内标包装：{inner_package_name}")
+        if outer_package_qty:
+            self.log(f"手工外标包装基数：{outer_package_qty}")
+        if inner_package_qty:
+            self.log(f"手工内标包装基数：{inner_package_qty}")
         threading.Thread(
             target=self.preview_worker,
-            args=(mo_no, shelf_life, printer_name, outer_template, inner_template, inner_package_name, outer_package_name),
+            args=(mo_no, shelf_life, printer_name, outer_template, inner_template, inner_package_name, outer_package_name, inner_package_qty, outer_package_qty),
             daemon=True,
         ).start()
 
@@ -925,6 +987,8 @@ class LabelGeneratorApp(tk.Tk):
         inner_template: str,
         inner_package_name: str,
         outer_package_name: str,
+        inner_package_qty: str,
+        outer_package_qty: str,
     ) -> None:
         try:
             self.worker_queue.put((
@@ -937,6 +1001,8 @@ class LabelGeneratorApp(tk.Tk):
                     inner_template_override=inner_template,
                     inner_package_name=inner_package_name,
                     outer_package_name=outer_package_name,
+                    inner_package_qty=inner_package_qty,
+                    outer_package_qty=outer_package_qty,
                 ),
             ))
         except Exception as error:
@@ -1013,6 +1079,11 @@ class LabelGeneratorApp(tk.Tk):
             return
         outer_template, inner_template = self.get_template_overrides()
         inner_package_name, outer_package_name = self.get_package_overrides()
+        try:
+            inner_package_qty, outer_package_qty = self.get_package_qty_overrides()
+        except ValueError as error:
+            messagebox.showwarning(APP_TITLE, str(error))
+            return
         if (
             outer_template != self.result.get("outer_template_override", "")
             or inner_template != self.result.get("inner_template_override", "")
@@ -1024,6 +1095,12 @@ class LabelGeneratorApp(tk.Tk):
             or outer_package_name != self.result.get("outer_package_override", "")
         ):
             messagebox.showwarning(APP_TITLE, "指定包装已修改，请重新生成预览后再打印。")
+            return
+        if (
+            inner_package_qty != self.result.get("inner_package_qty_override", "")
+            or outer_package_qty != self.result.get("outer_package_qty_override", "")
+        ):
+            messagebox.showwarning(APP_TITLE, "手工包装基数已修改，请重新生成预览后再打印。")
             return
         if not messagebox.askyesno(APP_TITLE, f"确认打印 {mo_no} 的 {', '.join(label_types)} 标签？"):
             return
@@ -1038,6 +1115,10 @@ class LabelGeneratorApp(tk.Tk):
             self.log(f"打印外标包装：{outer_package_name}")
         if inner_package_name:
             self.log(f"打印内标包装：{inner_package_name}")
+        if outer_package_qty:
+            self.log(f"打印手工外标包装基数：{outer_package_qty}")
+        if inner_package_qty:
+            self.log(f"打印手工内标包装基数：{inner_package_qty}")
         try:
             print_row_limits = self.get_print_row_limits(label_types)
         except ValueError as error:
@@ -1059,6 +1140,8 @@ class LabelGeneratorApp(tk.Tk):
                 inner_template,
                 inner_package_name,
                 outer_package_name,
+                inner_package_qty,
+                outer_package_qty,
                 print_row_limits,
             ),
             daemon=True,
@@ -1074,6 +1157,8 @@ class LabelGeneratorApp(tk.Tk):
         inner_template: str,
         inner_package_name: str,
         outer_package_name: str,
+        inner_package_qty: str,
+        outer_package_qty: str,
         print_row_limits,
     ) -> None:
         try:
@@ -1088,6 +1173,8 @@ class LabelGeneratorApp(tk.Tk):
                     inner_template_override=inner_template,
                     inner_package_name=inner_package_name,
                     outer_package_name=outer_package_name,
+                    inner_package_qty=inner_package_qty,
+                    outer_package_qty=outer_package_qty,
                     print_row_limits=print_row_limits,
                 ),
             ))

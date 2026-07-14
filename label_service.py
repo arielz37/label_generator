@@ -357,6 +357,8 @@ def prepare_runtime(
     shelf_life: str = "",
     inner_package_name: str = "",
     outer_package_name: str = "",
+    inner_package_qty: str = "",
+    outer_package_qty: str = "",
 ) -> Dict[str, object]:
     runtime_options = {}
     if shelf_life:
@@ -365,6 +367,10 @@ def prepare_runtime(
         runtime_options["INNER_PACKAGE_NAME_OVERRIDE"] = inner_package_name
     if outer_package_name:
         runtime_options["OUTER_PACKAGE_NAME_OVERRIDE"] = outer_package_name
+    if inner_package_qty:
+        runtime_options["INNER_QTY"] = inner_package_qty
+    if outer_package_qty:
+        runtime_options["OUTER_QTY"] = outer_package_qty
     runtime_rows = build_runtime_rows_for_mo(mo_no, runtime_options=runtime_options)
     csv_path = write_lookup_csv(runtime_rows)
 
@@ -435,12 +441,16 @@ def generate_label_preview(
     inner_template_override: str = "",
     inner_package_name: str = "",
     outer_package_name: str = "",
+    inner_package_qty: str = "",
+    outer_package_qty: str = "",
 ) -> Dict[str, object]:
     prepared = prepare_runtime(
         mo_no,
         shelf_life=shelf_life,
         inner_package_name=inner_package_name,
         outer_package_name=outer_package_name,
+        inner_package_qty=inner_package_qty,
+        outer_package_qty=outer_package_qty,
     )
     runtime_rows: List[Dict[str, str]] = prepared["runtime_rows"]  # type: ignore[assignment]
     csv_path: Path = prepared["csv_path"]  # type: ignore[assignment]
@@ -481,6 +491,8 @@ def generate_label_preview(
     result["inner_template_override"] = inner_template_override
     result["inner_package_override"] = inner_package_name
     result["outer_package_override"] = outer_package_name
+    result["inner_package_qty_override"] = inner_package_qty
+    result["outer_package_qty_override"] = outer_package_qty
     if inner_missing_notice:
         result["notices"].append(inner_missing_notice)  # type: ignore[union-attr]
     if inner_qty_missing_notice:
@@ -554,6 +566,8 @@ def print_labels(
     inner_template_override: str = "",
     inner_package_name: str = "",
     outer_package_name: str = "",
+    inner_package_qty: str = "",
+    outer_package_qty: str = "",
     print_row_limits: Optional[Dict[str, int]] = None,
 ) -> Dict[str, object]:
     requested = [item for item in label_types if item in ("outer", "inner")]
@@ -565,6 +579,8 @@ def print_labels(
         shelf_life=shelf_life,
         inner_package_name=inner_package_name,
         outer_package_name=outer_package_name,
+        inner_package_qty=inner_package_qty,
+        outer_package_qty=outer_package_qty,
     )
     runtime_rows: List[Dict[str, str]] = prepared["runtime_rows"]  # type: ignore[assignment]
     csv_path: Path = prepared["csv_path"]  # type: ignore[assignment]
@@ -620,6 +636,8 @@ def print_labels(
     result["printer_name"] = printer_name
     result["inner_package_override"] = inner_package_name
     result["outer_package_override"] = outer_package_name
+    result["inner_package_qty_override"] = inner_package_qty
+    result["outer_package_qty_override"] = outer_package_qty
     result["printed"] = printed
     return result
 

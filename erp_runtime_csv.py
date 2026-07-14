@@ -613,6 +613,7 @@ def build_runtime_csv_row(
         or first_value(normalized_row, ("EXP_DATE", "EXPIRE_DATE"))
     )
 
+    # A manually entered basis takes precedence; leaving it empty keeps BOM auto-detection.
     inner_qty = format_csv_value(options.get("INNER_QTY")) or pack_options.get("INNER_QTY", "")
     outer_qty = format_csv_value(options.get("OUTER_QTY")) or pack_options.get("OUTER_QTY", "")
     if not outer_qty:
