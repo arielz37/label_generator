@@ -26,6 +26,7 @@ from erp_runtime_csv import (
 )
 from template_mapping_lookup import (
     TemplateLookupError,
+    find_template_mapping_by_mo_fields,
     find_template_mapping_by_runtime_csv,
     get_column,
 )
@@ -286,30 +287,53 @@ def find_template_for_mo(
     outer_template_override: str = "",
     inner_template_override: str = "",
 ) -> str:
-    prepared = prepare_runtime(mo_no)
-    runtime_rows: List[Dict[str, str]] = prepared["runtime_rows"]  # type: ignore[assignment]
-    csv_path: Path = prepared["csv_path"]  # type: ignore[assignment]
-    runtime_row = runtime_rows[0]
-
     if label_type == "outer":
         override = normalize_template_override(outer_template_override)
         if override:
             return override
-        try:
-            return find_template_path_by_label_types(csv_path, ("外标", "内外标"))
-        except TemplateLookupError as error:
-            raise template_missing_error(runtime_row, ("外标", "内外标"), error) from error
-
-    if label_type == "inner":
+        label_types = ("外标", "内外标")
+    elif label_type == "inner":
         override = normalize_template_override(inner_template_override)
         if override:
             return override
-        try:
-            return find_template_path_by_label_types(csv_path, ("内标", "内外标"))
-        except TemplateLookupError as error:
-            raise template_missing_error(runtime_row, ("内标", "内外标"), error) from error
+        label_types = ("内标", "内外标")
+    else:
+        raise LabelServiceError(f"未知模板类型：{label_type}")
 
-    raise LabelServiceError(f"未知模板类型：{label_type}")
+    # Template discovery only needs the identifiers stored on the MO.  Do not call
+    # prepare_runtime() here: that also calculates label quantities from the BOM,
+    # which used to hide an otherwise valid template when a package basis was
+    # missing. Quantity validation belongs to preview/print, where UI overrides are
+    # available.
+    db_rows = fetch_mo_rows(mo_no)
+    if not db_rows:
+        raise RuntimeCsvError(f"未查询到 MO 数据：{mo_no}")
+    normalized = normalize_db_row(db_rows[0])
+    lookup_row = {
+        "CUS_NO": normalized.get("CUSTOMER_CODE", ""),
+        "SUP_PRD_NO": normalized.get("SUP_PRD_NO", "") or normalized.get("CUSTOMER_PART_NO", ""),
+        "MRP_NO": normalized.get("MRP_NO", "") or normalized.get("PRODUCT_CODE", ""),
+    }
+
+    last_error: Optional[TemplateLookupError] = None
+    for mapping_label_type in label_types:
+        try:
+            mapping = find_template_mapping_by_mo_fields(
+                mo_no=mo_no,
+                customer_code=lookup_row["CUS_NO"],
+                customer_part_no=lookup_row["SUP_PRD_NO"],
+                product_code=lookup_row["MRP_NO"],
+                label_type=mapping_label_type,
+            )
+        except TemplateLookupError as error:
+            last_error = error
+            continue
+        template_path = get_column(mapping, TEMPLATE_PATH_COLUMNS)
+        if template_path:
+            return template_path
+
+    error = last_error or TemplateLookupError("未找到标签类型对应的模板")
+    raise template_missing_error(lookup_row, label_types, error) from error
 
 
 def template_lookup_context(runtime_row: Dict[str, str]) -> str:

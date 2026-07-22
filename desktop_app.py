@@ -28,9 +28,11 @@ from docs.batch_set_bartender_database import run_batch_database_setup
 from erp_runtime_csv import fetch_bom_material_names_for_mo
 from generate_template_mapping import update_template_mapping_from_directory
 from label_service import find_template_for_mo, generate_label_preview, print_labels
+from version import __version__
 
 
 APP_TITLE = "标签生成工作台"
+APP_VERSION = f"v{__version__}"
 LOG_RETENTION_DAYS = 7
 MO_NO_PATTERN = re.compile(r"^MO\d{8}$")
 SHELF_LIFE_DEFAULT_TEXT = "默认12个月"
@@ -402,9 +404,14 @@ class LabelGeneratorApp(tk.Tk):
         self.log_text.grid(row=3, column=0, sticky="nsew", pady=(8, 0))
         right.rowconfigure(3, weight=1)
 
+        status_bar = ttk.Frame(self, relief="sunken")
+        status_bar.grid(row=2, column=0, sticky="ew")
+        status_bar.columnconfigure(0, weight=1)
         self.status_var = tk.StringVar(value="等待输入 MO 号")
-        status = ttk.Label(self, textvariable=self.status_var, relief="sunken", anchor="w", padding=6)
-        status.grid(row=2, column=0, sticky="ew")
+        status = ttk.Label(status_bar, textvariable=self.status_var, anchor="w", padding=6)
+        status.grid(row=0, column=0, sticky="ew")
+        version = ttk.Label(status_bar, text=APP_VERSION, anchor="e", padding=(6, 6, 10, 6))
+        version.grid(row=0, column=1, sticky="e")
 
         self.configure_entry_placeholders()
         self.update_action_state()

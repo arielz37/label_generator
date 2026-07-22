@@ -161,6 +161,19 @@ pip install -r requirements-build.txt
 .\build_exe.ps1
 ```
 
+`version.py` is the single source of truth for the application version. A normal
+build keeps the existing version. For a release build, increment the appropriate
+semantic-version component before packaging:
+
+```powershell
+.\build_exe.ps1 -Bump patch  # 1.2.2 -> 1.2.3 (bug fix)
+.\build_exe.ps1 -Bump minor  # 1.2.2 -> 1.3.0 (new compatible feature)
+.\build_exe.ps1 -Bump major  # 1.2.2 -> 2.0.0 (breaking change)
+```
+
+The desktop UI reads the same version automatically and displays it in the
+bottom-right corner.
+
 The output folder is:
 
 ```text
