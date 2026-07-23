@@ -14,6 +14,8 @@ from app_paths import LOG_DIR, PROJECT_ROOT, RUNTIME_DIR, TEMPLATE_ROOT
 try:
     from erp_runtime_csv import LABEL_CSV_FIELDS as CSV_FIELDS
 except Exception:
+    # This fallback order must preserve existing BarTender column bindings.
+    # Append future fields at the end; do not insert them in the middle.
     CSV_FIELDS = [
         "MO_NO",
         "SO_NO",
@@ -29,24 +31,12 @@ except Exception:
         "MFG_DATE_DD_MM_YYYY_DOT",
         "MFG_DATE_YYYY_MM_DD_DOT",
         "MFG_DATE_YY_MM_DD_DOT",
-        "MFG_DATE_YYYY_MM_DD_SLASH",
-        "MFG_DATE_YY_MM_DD_SLASH",
-        "MFG_DATE_YY",
-        "MFG_DATE_YYYY",
-        "MFG_DATE_MM",
-        "MFG_DATE_DD",
         "EXP_DATE",
         "EXP_DATE_YYMMDD",
         "EXP_DATE_YYYYMMDD",
         "EXP_DATE_DD_MM_YYYY_DOT",
         "EXP_DATE_YYYY_MM_DD_DOT",
         "EXP_DATE_YY_MM_DD_DOT",
-        "EXP_DATE_YYYY_MM_DD_SLASH",
-        "EXP_DATE_YY_MM_DD_SLASH",
-        "EXP_DATE_YY",
-        "EXP_DATE_YYYY",
-        "EXP_DATE_MM",
-        "EXP_DATE_DD",
         "LOT_NO",
         "HAS_INNER_LABEL",
         "QTY",
@@ -57,6 +47,18 @@ except Exception:
         "MO_NO_DIGITS",
         "MFG_DATE_MM_DD_YYYY_SLASH",
         "EXP_DATE_MM_DD_YYYY_SLASH",
+        "MFG_DATE_YYYY_MM_DD_SLASH",
+        "MFG_DATE_YY_MM_DD_SLASH",
+        "MFG_DATE_YY",
+        "MFG_DATE_YYYY",
+        "MFG_DATE_MM",
+        "MFG_DATE_DD",
+        "EXP_DATE_YYYY_MM_DD_SLASH",
+        "EXP_DATE_YY_MM_DD_SLASH",
+        "EXP_DATE_YY",
+        "EXP_DATE_YYYY",
+        "EXP_DATE_MM",
+        "EXP_DATE_DD",
     ]
 
 TOOL_DIR = Path(__file__).resolve().parent

@@ -34,6 +34,8 @@ from template_mapping_lookup import (
 
 RUNTIME_CSV = RUNTIME_DIR / "current_label.csv"
 PRINT_CSV_DIR = JOB_OUTPUT_DIR / "print_csv"
+# BarTender may retain database bindings by column position. Never insert new
+# fields in the middle; append them to the end to preserve existing templates.
 LABEL_CSV_FIELDS = [
     "MO_NO",
     "SO_NO",
@@ -49,24 +51,12 @@ LABEL_CSV_FIELDS = [
     "MFG_DATE_DD_MM_YYYY_DOT",
     "MFG_DATE_YYYY_MM_DD_DOT",
     "MFG_DATE_YY_MM_DD_DOT",
-    "MFG_DATE_YYYY_MM_DD_SLASH",
-    "MFG_DATE_YY_MM_DD_SLASH",
-    "MFG_DATE_YY",
-    "MFG_DATE_YYYY",
-    "MFG_DATE_MM",
-    "MFG_DATE_DD",
     "EXP_DATE",
     "EXP_DATE_YYMMDD",
     "EXP_DATE_YYYYMMDD",
     "EXP_DATE_DD_MM_YYYY_DOT",
     "EXP_DATE_YYYY_MM_DD_DOT",
     "EXP_DATE_YY_MM_DD_DOT",
-    "EXP_DATE_YYYY_MM_DD_SLASH",
-    "EXP_DATE_YY_MM_DD_SLASH",
-    "EXP_DATE_YY",
-    "EXP_DATE_YYYY",
-    "EXP_DATE_MM",
-    "EXP_DATE_DD",
     "LOT_NO",
     "HAS_INNER_LABEL",
     "QTY",
@@ -77,6 +67,18 @@ LABEL_CSV_FIELDS = [
     "MO_NO_DIGITS",
     "MFG_DATE_MM_DD_YYYY_SLASH",
     "EXP_DATE_MM_DD_YYYY_SLASH",
+    "MFG_DATE_YYYY_MM_DD_SLASH",
+    "MFG_DATE_YY_MM_DD_SLASH",
+    "MFG_DATE_YY",
+    "MFG_DATE_YYYY",
+    "MFG_DATE_MM",
+    "MFG_DATE_DD",
+    "EXP_DATE_YYYY_MM_DD_SLASH",
+    "EXP_DATE_YY_MM_DD_SLASH",
+    "EXP_DATE_YY",
+    "EXP_DATE_YYYY",
+    "EXP_DATE_MM",
+    "EXP_DATE_DD",
 ]
 TEMPLATE_PATH_COLUMNS = ("模板相对路径", "模版相对路径", "模板路径", "模版路径", "相对路径")
 INNER_LABEL_TRUE_VALUES = {"y", "yes", "1", "true", "是", "有"}
